@@ -1,0 +1,66 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:EchoLink.ViewModels"
+             x:Class="EchoLink.Views.MainView"
+             x:DataType="vm:MainWindowViewModel">
+    
+    <Grid ColumnDefinitions="Auto,*">
+        <Border Grid.Column="0" Width="240" Background="#1E1E1E" BorderBrush="#2D2D2D" BorderThickness="0,0,1,0" IsVisible="{Binding IsSidebarOpen}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="20,30,20,24" Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Ellipse Width="10" Height="10" Fill="#00E676" VerticalAlignment="Center"/>
+                        <TextBlock Text="EchoLink" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                    </StackPanel>
+                    <TextBlock Text="Mesh Network" FontSize="11" Foreground="#B3B3B3" Margin="20,0,0,0"/>
+                </StackPanel>
+                
+                <StackPanel DockPanel.Dock="Top" Margin="12,0" Spacing="4">
+                    <Button Classes="Nav" Command="{Binding NavigateDashboardCommand}" HorizontalAlignment="Stretch">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBlock Text="⬡" FontSize="16" VerticalAlignment="Center"/>
+                            <TextBlock Text="Dashboard" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="Nav" Command="{Binding NavigateFileTransferCommand}" HorizontalAlignment="Stretch">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBlock Text="📁" FontSize="16" VerticalAlignment="Center"/>
+                            <TextBlock Text="File Transfer" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="Nav" Command="{Binding NavigateClipboardCommand}" HorizontalAlignment="Stretch">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBlock Text="📋" FontSize="16" VerticalAlignment="Center"/>
+                            <TextBlock Text="Clipboard Hub" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="Nav" Command="{Binding NavigateRemoteControlCommand}" HorizontalAlignment="Stretch">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBlock Text="🖱" FontSize="16" VerticalAlignment="Center"/>
+                            <TextBlock Text="Remote Control" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="Nav" Command="{Binding NavigateDebugConsoleCommand}" HorizontalAlignment="Stretch">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBlock Text="🐛" FontSize="16" VerticalAlignment="Center"/>
+                            <TextBlock Text="Debug Console" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+                
+                <TextBlock DockPanel.Dock="Bottom" Text="v1.0 · FOSS Hack 2026" FontSize="10" Foreground="#4A4A4A" Margin="20,0,20,20"/>
+            </DockPanel>
+        </Border>
+        
+        <DockPanel Grid.Column="1">
+            <Border DockPanel.Dock="Top" Background="#1E1E1E" BorderBrush="#2D2D2D" BorderThickness="0,0,0,1" Padding="20,12">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Button Grid.Column="0" Command="{Binding ToggleSidebarCommand}" Background="Transparent" Foreground="#B3B3B3" Padding="8,4" CornerRadius="6" Content="☰" FontSize="18"/>
+                    <TextBlock Grid.Column="1" Text="{Binding CurrentPageTitle}" FontSize="17" FontWeight="SemiBold" Foreground="#FFFFFF" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                </Grid>
+            </Border>
+            
+            <TransitioningContentControl DockPanel.Dock="Top" Content="{Binding CurrentPage}" Margin="0" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch" PageTransition="{x:Null}"/>
+        </DockPanel>
+    </Grid>
+</UserControl>

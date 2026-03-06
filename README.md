@@ -23,7 +23,7 @@ EchoLink is an open-source, cross-platform app designed to make device-to-device
 
 ## 📑 Todo List
 
-- [ ] Set up the Headscale control server and integrate the private mesh networking.
+- [x] Set up the Headscale control server and integrate the private mesh networking.
 - [ ] Build the cross-platform UI and secure, QR-based device pairing.
 - [ ] Develop the core SSH/SFTP features: clipboard sync, file transfers, and remote actions.
 - [ ] Implement the Android background service to keep the mobile device reachable.
