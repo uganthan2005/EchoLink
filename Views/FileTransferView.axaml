@@ -76,6 +76,13 @@
                             Content="Browse Files"
                             HorizontalAlignment="Center"
                             Click="OnBrowseClicked"/>
+                    
+                    <Button Classes="Primary"
+                            Content="Send"
+                            HorizontalAlignment="Center"
+                            Command="{Binding SendFileCommand}"
+                            IsVisible="{Binding HasFileSelected}"
+                            Margin="0,15,0,0"/>
                 </StackPanel>
             </Border>
 

@@ -56,18 +56,34 @@ public partial class FileTransferViewModel : ViewModelBase
         await Task.CompletedTask;
     }
 
-    public async Task SetFileAndUploadAsync(string filePath)
-    {
-        SelectedFileName = System.IO.Path.GetFileName(filePath);
-        _log.Info($"File selected: {SelectedFileName}");
+    [ObservableProperty] private string _selectedFilePath = string.Empty;
+    [ObservableProperty] private bool _hasFileSelected;
 
+    public void SetFile(string filePath)
+    {
+        SelectedFilePath = filePath;
+        SelectedFileName = System.IO.Path.GetFileName(filePath);
+        HasFileSelected = true;
+        _log.Info($"File selected: {SelectedFileName}");
+        StatusText = "File ready to send. Click Send.";
+    }
+
+    [RelayCommand]
+    public async Task SendFileAsync()
+    {
         if (SelectedTarget is null)
         {
             StatusText = "Please select a target device first.";
             return;
         }
 
-        await PerformSftpUploadAsync(filePath);
+        if (string.IsNullOrEmpty(SelectedFilePath))
+        {
+            StatusText = "Please select a file first.";
+            return;
+        }
+
+        await PerformSftpUploadAsync(SelectedFilePath);
     }
 
     private async Task PerformSftpUploadAsync(string filePath)
@@ -105,9 +121,8 @@ public partial class FileTransferViewModel : ViewModelBase
                 _log.Warning("[SFTP] Pairing rejected or timed out. SFTP connection may fail if not already authorized.");
             }
 
-            string remotePath = (SelectedTarget.Os?.ToLower().Contains("windows") == true)
-                ? $"C:/Users/{targetUsername}/Downloads/{fileName}" 
-                : $"/home/{targetUsername}/Downloads/{fileName}"; // Default destination      
+            // Just pass the filename, let the SftpService resolve the remote OS folder dynamically
+            string remotePath = fileName; 
 
             await _sftp.UploadFileAsync(
                 SelectedTarget.IpAddress,

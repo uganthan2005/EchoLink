@@ -12,9 +12,14 @@ namespace EchoLink.Services
         {
             if (OperatingSystem.IsWindows())
             {
-                // Check if sshd service exists
-                var result = await RunCommandAsync("powershell", "-NoProfile -Command \"Get-Service -Name sshd -ErrorAction SilentlyContinue\"");
-                return result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.StandardOutput);
+                // Check if sshd service exists and configuration is patched
+                var serviceCheck = await RunCommandAsync("powershell", "-NoProfile -Command \"Get-Service -Name sshd -ErrorAction SilentlyContinue\"");
+                bool isRunning = serviceCheck.ExitCode == 0 && !string.IsNullOrWhiteSpace(serviceCheck.StandardOutput);
+
+                var configCheck = await RunCommandAsync("powershell", "-NoProfile -Command \"$c = Get-Content $env:ProgramData\\ssh\\sshd_config -ErrorAction SilentlyContinue; if ($c -match '^Match Group administrators') { exit 1 } else { exit 0 }\"");
+                bool isConfigPatched = configCheck.ExitCode == 0;
+
+                return isRunning && isConfigPatched;
             }
             else if (OperatingSystem.IsLinux())
             {
@@ -34,11 +39,18 @@ namespace EchoLink.Services
             if (OperatingSystem.IsWindows())
             {
                 // Requires admin privileges.
-                // We'll execute a powershell script with 'runas' verb to elevate
                 string script = @"
 try {
-    Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction Stop
+    Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 -ErrorAction SilentlyContinue
+    
+    # Patch sshd_config so Administrators use ~/.ssh/authorized_keys
+    $sshd_config = ""$env:ProgramData\ssh\sshd_config""
+    if (Test-Path $sshd_config) {
+        (Get-Content $sshd_config) -replace '(?m)^Match Group administrators', '#Match Group administrators' -replace '(?m)^\s*AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys', '#       AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys' | Set-Content $sshd_config
+    }
+
     Set-Service -Name sshd -StartupType 'Automatic'
+    Stop-Service sshd -ErrorAction SilentlyContinue
     Start-Service sshd
     # Open Firewall
     if (!(Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue | Select-Object -First 1)) {

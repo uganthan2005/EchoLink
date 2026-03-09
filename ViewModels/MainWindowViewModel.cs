@@ -39,6 +39,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async System.Threading.Tasks.Task InitializeSetupAsync()
     {
+        // Expose ports 22 and 44444 to the Tailnet so Windows can receive files in userspace-networking
+        await TailscaleService.Instance.ExposeLocalPortsAsync();
+
         // One-time SSH Setup
         IsSshInstalling = true;
         SshStatusText = "Checking SSH Server...";

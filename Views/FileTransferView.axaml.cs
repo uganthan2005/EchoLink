@@ -41,7 +41,7 @@ public partial class FileTransferView : UserControl
         {
             var path = files[0].TryGetLocalPath();
             if (path is not null)
-                await vm.SetFileAndUploadAsync(path);
+                vm.SetFile(path);
         }
     }
 
@@ -76,7 +76,7 @@ public partial class FileTransferView : UserControl
         {
             var path = files[0].TryGetLocalPath();
             if (path is not null)
-                await vm.SetFileAndUploadAsync(path);
+                vm.SetFile(path);
         }
     }
 }

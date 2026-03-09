@@ -51,12 +51,30 @@ public class SftpService
                 _log.Info($"[SFTP] Connecting to {host} via SOCKS5 proxy...");
                 client.Connect();
 
+                // Compute the absolute remote path
+                string resolvedRemotePath = remotePath;
+                if (!remotePath.StartsWith("/") && !remotePath.Contains(":/"))
+                {
+                    // For cross-platform support without path corruption
+                    string currentDir = client.WorkingDirectory;
+                    if (currentDir == "/") 
+                    {
+                        // Some Windows OpenSSH configs drop us into / mapping to C:\
+                        resolvedRemotePath = $"/C:/Users/{username}/Downloads/{remotePath}";
+                    }
+                    else
+                    {
+                        // In Windows OpenSSH, the home dir usually starts at /C:/Users/User
+                        resolvedRemotePath = $"{currentDir}/Downloads/{remotePath}";
+                    }
+                }
+
                 using var fileStream = File.OpenRead(localPath);
                 long totalBytes = fileStream.Length;
 
-                _log.Info($"[SFTP] Starting upload: {Path.GetFileName(localPath)} ({totalBytes} bytes)");
+                _log.Info($"[SFTP] Starting upload to {resolvedRemotePath}: {Path.GetFileName(localPath)} ({totalBytes} bytes)");
 
-                client.UploadFile(fileStream, remotePath, (uploaded) =>
+                client.UploadFile(fileStream, resolvedRemotePath, (uploaded) =>
                 {
                     ct.ThrowIfCancellationRequested(); // Automatically abort if cancel button clicked
                     progressCallback(checked((long)uploaded), totalBytes);
