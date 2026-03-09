@@ -9,6 +9,7 @@ namespace EchoLink.ViewModels;
 public partial class FileTransferViewModel : ViewModelBase
 {
     private readonly LoggingService _log = LoggingService.Instance;
+    private readonly SftpService _sftp = new();
 
     [ObservableProperty] private Device? _selectedTarget;
     [ObservableProperty] private string _selectedFileName = string.Empty;
@@ -17,11 +18,35 @@ public partial class FileTransferViewModel : ViewModelBase
     [ObservableProperty] private string _statusText = "Drop a file or click to browse";
     [ObservableProperty] private bool _isDropZoneActive;
 
-    public ObservableCollection<Device> OnlineDevices { get; } =
-    [
-        new Device { Name = "Gautam-Phone",  IpAddress = "100.64.10.2", IsOnline = true, DeviceType = "Phone" },
-        new Device { Name = "Gautam-Laptop", IpAddress = "100.64.10.3", IsOnline = true, DeviceType = "Laptop" },
-    ];
+    private CancellationTokenSource? _uploadCts;
+
+    public ObservableCollection<Device> OnlineDevices { get; } = new();
+
+    public FileTransferViewModel()
+    {
+        _ = LoadDevicesAsync();
+    }
+
+    [RelayCommand]
+    private async Task LoadDevicesAsync()
+    {
+        try
+        {
+            var (_, devices) = await TailscaleService.Instance.GetNetworkStatusAsync();
+            OnlineDevices.Clear();
+            foreach (var device in devices)
+            {
+                if (device.IsOnline && !device.IsSelf)
+                {
+                    OnlineDevices.Add(device);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"[FileTransfer] Failed to load devices: {ex.Message}");
+        }
+    }
 
     [RelayCommand]
     private async Task BrowseFileAsync()
@@ -42,7 +67,81 @@ public partial class FileTransferViewModel : ViewModelBase
             return;
         }
 
-        await SimulateUploadAsync(filePath);
+        await PerformSftpUploadAsync(filePath);
+    }
+
+    private async Task PerformSftpUploadAsync(string filePath)
+    {
+        if (SelectedTarget == null) return;
+
+        IsUploading = true;
+        UploadProgress = 0;
+        var fileName = System.IO.Path.GetFileName(filePath);
+        
+        _uploadCts = new CancellationTokenSource();
+        var ct = _uploadCts.Token;
+
+        _log.Info($"[SFTP] Preparing upload of '{fileName}' → {SelectedTarget.IpAddress}");
+        StatusText = $"Connecting to {SelectedTarget.Name}...";
+
+        try
+        {
+            // With Tailscale SSH, the host accepts the connection regardless of the password 
+            // as long as the Headscale ACL allows it!
+            string username = Environment.UserName;
+            
+            var pairingService = new SshPairingService(TailscaleService.Instance);
+            await pairingService.EnsureKeyPairAsync();
+            string privateKeyPath = pairingService.PrivateKeyPath;
+            
+            // Try to pair silently (or prompt the other side)
+            _log.Info($"[SFTP] Requesting pairing with {SelectedTarget.IpAddress}...");
+            var pairingResult = await pairingService.RequestPairingAsync(SelectedTarget.IpAddress, Environment.MachineName, Environment.UserName);
+            
+            string targetUsername = pairingResult.TargetUsername ?? "root"; // fallback
+            
+            if (!pairingResult.Accepted)
+            {
+                _log.Warning("[SFTP] Pairing rejected or timed out. SFTP connection may fail if not already authorized.");
+            }
+
+            string remotePath = (SelectedTarget.Os?.ToLower().Contains("windows") == true)
+                ? $"C:/Users/{targetUsername}/Downloads/{fileName}" 
+                : $"/home/{targetUsername}/Downloads/{fileName}"; // Default destination      
+
+            await _sftp.UploadFileAsync(
+                SelectedTarget.IpAddress,
+                targetUsername,
+                privateKeyPath,
+                filePath,
+                remotePath,
+                (uploaded, total) =>
+                {
+                    double progress = (total == 0) ? 0 : ((double)uploaded / total * 100);
+                    // Marshaling property changes to UI thread implicitly handled by Avalonia/ObservableProperty but good practice
+                    UploadProgress = progress;
+                    StatusText = $"Uploading {fileName}... {progress:F1}%";
+                }, ct);
+
+            StatusText = $"✔ '{fileName}' sent to {SelectedTarget.Name}";
+            _log.Info($"[SFTP] Upload complete: {fileName}");
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "❌ Upload cancelled.";
+            _log.Warning($"[SFTP] Upload cancelled: {fileName}");
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"❌ Failed: {ex.Message}";
+            _log.Error($"[SFTP] Upload error: {ex.Message}");
+        }
+        finally
+        {
+            IsUploading = false;
+            _uploadCts?.Dispose();
+            _uploadCts = null;
+        }
     }
 
     private async Task SimulateUploadAsync(string filePath)
@@ -68,9 +167,17 @@ public partial class FileTransferViewModel : ViewModelBase
     [RelayCommand]
     private void CancelUpload()
     {
-        IsUploading  = false;
-        StatusText   = "Upload cancelled.";
-        UploadProgress = 0;
-        _log.Warning("Upload cancelled by user.");
+        if (IsUploading && _uploadCts != null)
+        {
+            _log.Info("Cancelling upload...");
+            _uploadCts.Cancel();
+        }
+        else
+        {
+            IsUploading  = false;
+            StatusText   = "Upload cancelled.";
+            UploadProgress = 0;
+            _log.Warning("Upload cancelled by user.");
+        }
     }
 }

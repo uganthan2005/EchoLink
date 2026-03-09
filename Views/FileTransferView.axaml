@@ -23,8 +23,12 @@
             <!-- Target selector -->
             <Border Classes="Card">
                 <StackPanel Spacing="12">
-                    <TextBlock Text="Select Target Device"
-                               FontSize="13" Foreground="#B3B3B3"/>
+                      <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock Grid.Column="0" Text="Select Target Device"
+                                     FontSize="13" Foreground="#B3B3B3" VerticalAlignment="Center"/>
+                          <Button Grid.Column="1" Content="↻ Refresh" Command="{Binding LoadDevicesCommand}" 
+                                  Classes="Nav" Background="Transparent" Foreground="#3273F6" Padding="6,2" FontSize="12"/>
+                      </Grid>
                     <ComboBox ItemsSource="{Binding OnlineDevices}"
                               SelectedItem="{Binding SelectedTarget}"
                               HorizontalAlignment="Stretch"

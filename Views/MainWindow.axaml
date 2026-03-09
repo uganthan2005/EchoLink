@@ -12,7 +12,12 @@
         Background="#121212"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="PreferSystemChrome"
-        TransparencyLevelHint="AcrylicBlur">
+        TransparencyLevelHint="AcrylicBlur"
+        xmlns:conv="using:EchoLink.Converters">
+
+    <Window.Resources>
+        <conv:BoolToColorConverter x:Key="SshStatusColor" TrueColor="#00E676" FalseColor="#FF5252"/>
+    </Window.Resources>
 
     <Design.DataContext>
         <vm:MainWindowViewModel/>
@@ -95,8 +100,19 @@
                     </Button>
                 </StackPanel>
 
-                <!-- Bottom: Logout + Version -->
+                <!-- Bottom: SSH Status + Logout + Version -->
                 <StackPanel DockPanel.Dock="Bottom" Margin="12,0,12,12" Spacing="8">
+                    
+                    <Border Background="#2D2D30" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="8" Height="8" 
+                                     Fill="{Binding IsSshReady, Converter={StaticResource SshStatusColor}}" 
+                                     VerticalAlignment="Center"/>
+                            <TextBlock Text="SSH Ready" IsVisible="{Binding IsSshReady}" Foreground="#E0E0E0" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="SSH Missing" IsVisible="{Binding !IsSshReady}" Foreground="#FF5252" FontSize="12" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    
                     <Button Classes="Nav"
                             Command="{Binding LogoutCommand}"
                             HorizontalAlignment="Stretch">
@@ -157,5 +173,35 @@
                 PageTransition="{x:Null}"/>
 
         </DockPanel>
+
+        <!-- Ssh Installation Overlay -->
+        <Border Grid.Column="0" Grid.ColumnSpan="2"
+                Background="#99000000"
+                IsVisible="{Binding IsSshInstalling}"
+                ZIndex="100">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <ProgressBar IsIndeterminate="True" Foreground="#3273F6" Width="200" Height="4" Margin="0,0,0,20"/>
+                <TextBlock Text="{Binding SshStatusText}" FontSize="18" Foreground="White" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Pairing Request Notification Dialog Overlay -->
+        <Border Grid.Column="0" Grid.ColumnSpan="2"
+                Background="#99000000"
+                IsVisible="{Binding ShowPairingRequest}"
+                ZIndex="101">
+            <Border Background="#252526" CornerRadius="8" Padding="30" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="500" BorderBrush="#3E3E42" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="Pairing Request" FontSize="22" FontWeight="Bold" Foreground="White" Margin="0,0,0,15"/>
+                    <TextBlock Text="{Binding PairingRequestText}" FontSize="16" Foreground="#CCCCCC" TextWrapping="Wrap" Margin="0,0,0,25"/>
+                    
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                        <Button Content="Reject" Command="{Binding RejectPairingCommand}" Background="#3A3A3C" Foreground="White" Padding="20,8" CornerRadius="4"/>
+                        <Button Content="Accept" Command="{Binding AcceptPairingCommand}" Background="#0078D4" Foreground="White" Padding="20,8" CornerRadius="4"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
+
     </Grid>
 </Window>

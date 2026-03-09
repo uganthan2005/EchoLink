@@ -562,7 +562,8 @@ public class TailscaleService
     {
         string cliPath = CliPath();
         string unattended = OperatingSystem.IsWindows() ? " --unattended" : "";
-        string args = PrefixSocketArg($"up --login-server={HeadscaleServer}{unattended}");
+        string ssh = OperatingSystem.IsWindows() ? "" : " --ssh";
+        string args = PrefixSocketArg($"up --login-server={HeadscaleServer}{unattended}{ssh}");
 
         if (!File.Exists(cliPath))
         {
@@ -674,7 +675,8 @@ public class TailscaleService
         }
 
         string unattended = OperatingSystem.IsWindows() ? " --unattended" : "";
-        string args = PrefixSocketArg($"up --login-server={HeadscaleServer}{unattended}");
+        string ssh = OperatingSystem.IsWindows() ? "" : " --ssh";
+        string args = PrefixSocketArg($"up --login-server={HeadscaleServer}{unattended}{ssh}");
 
         var psi = new ProcessStartInfo
         {
