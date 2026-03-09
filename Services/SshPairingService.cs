@@ -152,18 +152,64 @@ namespace EchoLink.Services
             }
         }
 
+        private async Task<TcpClient?> ConnectViaSocks5Async(string targetIp, int port, CancellationToken ct)
+        {
+            var client = new TcpClient();
+            try
+            {
+                // Connect to the local SOCKS5 proxy provided by Tailscale
+                await client.ConnectAsync("127.0.0.1", 1055, ct);
+                var stream = client.GetStream();
+
+                // 1. SOCKS5 Greeting
+                await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, ct);
+                byte[] response1 = new byte[2];
+                int read = await stream.ReadAsync(response1, ct);
+                if (read != 2 || response1[1] != 0x00) return null;
+
+                // 2. SOCKS5 Connection Request
+                byte[] destIpBytes = IPAddress.Parse(targetIp).GetAddressBytes();
+                byte[] portBytes = BitConverter.GetBytes((short)port);
+                if (BitConverter.IsLittleEndian) Array.Reverse(portBytes);
+
+                byte[] request = new byte[6 + destIpBytes.Length];
+                request[0] = 0x05; // Version
+                request[1] = 0x01; // CONNECT
+                request[2] = 0x00; // RSV
+                request[3] = 0x01; // IPv4
+                destIpBytes.CopyTo(request, 4);
+                portBytes.CopyTo(request, 4 + destIpBytes.Length);
+
+                await stream.WriteAsync(request, ct);
+
+                byte[] response2 = new byte[10];
+                read = await stream.ReadAsync(response2, ct);
+                if (response2[1] != 0x00) return null; // Success = 0x00
+
+                return client;
+            }
+            catch
+            {
+                client.Dispose();
+                return null;
+            }
+        }
+
         public async Task<(bool Accepted, string? TargetUsername)> RequestPairingAsync(string targetIp, string myHostname, string myUsername)
         {
             string myPubKey = await GetMyPublicKeyAsync();
 
             try
             {
-                using var client = new TcpClient();
-                // 5 seconds timeout to connect
-                var connectTask = client.ConnectAsync(targetIp, KeyExchangePort);
-                if (await Task.WhenAny(connectTask, Task.Delay(5000)) != connectTask)
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                
+                // Route through SOCKS5 proxy since we are running userspace tailscale
+                using var client = await ConnectViaSocks5Async(targetIp, KeyExchangePort, cts.Token);
+                
+                if (client == null || !client.Connected)
                 {
-                    return (false, null); // Timeout
+                    LoggingService.Instance.Error($"SOCKS5 proxy rejected connection to {targetIp}:{KeyExchangePort}");
+                    return (false, null);
                 }
 
                 using var stream = client.GetStream();
