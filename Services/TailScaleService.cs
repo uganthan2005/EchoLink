@@ -561,7 +561,8 @@ public class TailscaleService
     public async Task LoginAsync(Action<string> onAuthUrl, CancellationToken ct = default)
     {
         string cliPath = CliPath();
-        string args = PrefixSocketArg($"up --login-server={HeadscaleServer} --unattended");
+        string unattended = OperatingSystem.IsWindows() ? " --unattended" : "";
+        string args = PrefixSocketArg($"up --login-server={HeadscaleServer}{unattended}");
 
         if (!File.Exists(cliPath))
         {
@@ -672,7 +673,8 @@ public class TailscaleService
             return false;
         }
 
-        string args = PrefixSocketArg($"up --login-server={HeadscaleServer} --unattended");
+        string unattended = OperatingSystem.IsWindows() ? " --unattended" : "";
+        string args = PrefixSocketArg($"up --login-server={HeadscaleServer}{unattended}");
 
         var psi = new ProcessStartInfo
         {
