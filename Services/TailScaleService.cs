@@ -798,21 +798,17 @@ public class TailscaleService
 
     public async Task ExposeClipboardPortAsync(CancellationToken ct = default)
     {
-        if (OperatingSystem.IsWindows())
-        {
-            await RunCliAsync("serve --bg --tcp 44555 tcp://127.0.0.1:44555", ct);
-        }
+        var (_, stderr) = await RunCliAsync("serve --bg --tcp 44555 tcp://127.0.0.1:44555", ct);
+        if (!string.IsNullOrWhiteSpace(stderr))
+            _log.Warning($"[Tailscale] Clipboard port expose warning: {stderr.Trim()}");
     }
 
-        public async Task ExposeLocalPortsAsync(CancellationToken ct = default)
+    public async Task ExposeLocalPortsAsync(CancellationToken ct = default)
     {
-        if (OperatingSystem.IsWindows())
-        {
-            _log.Info("[Tailscale] Setting up userspace port forwarding for SSH and Pairing...");
-            await RunCliAsync("serve --bg --tcp 22 tcp://127.0.0.1:22", ct);
-            await RunCliAsync("serve --bg --tcp 44444 tcp://127.0.0.1:44444", ct);
-            await RunCliAsync("serve --bg --tcp 44555 tcp://127.0.0.1:44555", ct);
-        }
+        _log.Info("[Tailscale] Setting up userspace port forwarding for SSH, Pairing, and MirrorClip...");
+        await RunCliAsync("serve --bg --tcp 22 tcp://127.0.0.1:22", ct);
+        await RunCliAsync("serve --bg --tcp 44444 tcp://127.0.0.1:44444", ct);
+        await RunCliAsync("serve --bg --tcp 44555 tcp://127.0.0.1:44555", ct);
     }
 
     public async Task LogoutAsync(CancellationToken ct = default)

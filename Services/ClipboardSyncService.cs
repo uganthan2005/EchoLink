@@ -249,8 +249,11 @@ public class ClipboardSyncService
         if (message.Type != "clip" || string.IsNullOrWhiteSpace(message.EventId))
             return;
 
-        if (!string.Equals(message.SenderAccountId, _localAccountId, StringComparison.Ordinal))
+        if (!await IsSameAccountAsync(message.SenderAccountId, ct))
+        {
+            _log.Debug($"MirrorClip ignored clip from different account. sender={message.SenderAccountId}, local={_localAccountId}");
             return;
+        }
 
         if (_journal.HasEvent(message.EventId))
         {
@@ -294,6 +297,27 @@ public class ClipboardSyncService
         _suppressLocalUntilUtc = DateTime.UtcNow.AddSeconds(2);
         _lastObservedHash = ComputeHash(text);
         await clipboard.SetTextAsync(text);
+    }
+
+    private async Task<bool> IsSameAccountAsync(string? senderAccountId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(senderAccountId))
+            return false;
+
+        if (string.Equals(senderAccountId, "unknown-account", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.IsNullOrWhiteSpace(_localAccountId) || _localAccountId == "unknown-account")
+        {
+            _localAccountId = await TailscaleService.Instance.GetCurrentAccountIdAsync(ct)
+                ?? _localAccountId;
+        }
+
+        // Only enforce strict matching when both sides have resolved IDs.
+        if (string.IsNullOrWhiteSpace(_localAccountId) || _localAccountId == "unknown-account")
+            return true;
+
+        return string.Equals(senderAccountId, _localAccountId, StringComparison.Ordinal);
     }
 
     private static string ComputeHash(string text)
