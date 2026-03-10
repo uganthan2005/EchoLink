@@ -47,6 +47,51 @@ public class ClipboardJournalService
         }
     }
 
+    public async Task<IReadOnlyList<ClipboardSyncMessage>> GetRecentClipMessagesAsync(int maxCount, CancellationToken ct = default)
+    {
+        if (maxCount <= 0)
+            return [];
+
+        await _gate.WaitAsync(ct);
+        try
+        {
+            if (!File.Exists(_journalPath))
+                return [];
+
+            var lines = await File.ReadAllLinesAsync(_journalPath, ct);
+            var result = new List<ClipboardSyncMessage>(maxCount);
+
+            for (int i = lines.Length - 1; i >= 0 && result.Count < maxCount; i--)
+            {
+                var line = lines[i];
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                ClipboardSyncMessage? msg;
+                try
+                {
+                    msg = JsonSerializer.Deserialize<ClipboardSyncMessage>(line);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (msg is null || msg.Type != "clip")
+                    continue;
+
+                result.Add(msg);
+            }
+
+            result.Reverse();
+            return result;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private void LoadExistingIndex()
     {
         if (!File.Exists(_journalPath))

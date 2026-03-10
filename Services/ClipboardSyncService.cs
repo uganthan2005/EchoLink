@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Collections.Concurrent;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using EchoLink.Models;
@@ -23,10 +24,13 @@ public class ClipboardSyncService
     private CancellationTokenSource? _cts;
     private Task? _listenerTask;
     private Task? _monitorTask;
+    private Task? _reliabilityTask;
 
     private string _lastObservedHash = "";
     private DateTime _suppressLocalUntilUtc = DateTime.MinValue;
     private string _localAccountId = "";
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, ClipboardSyncMessage>> _pendingByPeer = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _knownOnlinePeers = new(StringComparer.OrdinalIgnoreCase);
 
     public event Action<ClipboardEntry>? ClipboardReceived;
 
@@ -45,6 +49,7 @@ public class ClipboardSyncService
 
         _listenerTask = Task.Run(() => RunListenerAsync(_cts.Token), _cts.Token);
         _monitorTask = Task.Run(() => RunMonitorAsync(_cts.Token), _cts.Token);
+        _reliabilityTask = Task.Run(() => RunReliabilityLoopAsync(_cts.Token), _cts.Token);
 
         _log.Info("MirrorClip sync engine started.");
     }
@@ -61,6 +66,8 @@ public class ClipboardSyncService
                 await _listenerTask;
             if (_monitorTask is not null)
                 await _monitorTask;
+            if (_reliabilityTask is not null)
+                await _reliabilityTask;
         }
         catch (OperationCanceledException) { }
         finally
@@ -69,6 +76,7 @@ public class ClipboardSyncService
             _cts = null;
             _listenerTask = null;
             _monitorTask = null;
+            _reliabilityTask = null;
         }
 
         _log.Info("MirrorClip sync engine stopped.");
@@ -169,11 +177,14 @@ public class ClipboardSyncService
         {
             try
             {
-                await SendClipToPeerAsync(peerIp, message, ct);
+                bool acked = await SendClipToPeerAsync(peerIp, message, ct);
+                if (!acked)
+                    QueuePending(peerIp, message);
             }
             catch (Exception ex)
             {
                 _log.Warning($"MirrorClip send failed to {peerIp}: {ex.Message}");
+                QueuePending(peerIp, message);
             }
         }
 
@@ -207,6 +218,7 @@ public class ClipboardSyncService
         using var _ = client;
         using var stream = client.GetStream();
         using var reader = new StreamReader(stream, Encoding.UTF8);
+        using var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
 
         var line = await reader.ReadLineAsync(ct);
         if (string.IsNullOrWhiteSpace(line))
@@ -222,18 +234,30 @@ public class ClipboardSyncService
             return;
         }
 
-        if (message is null || message.Type != "clip" || string.IsNullOrWhiteSpace(message.EventId))
+        if (message is null)
+            return;
+
+        if (message.Type == "ack")
+            return;
+
+        if (message.Type != "clip" || string.IsNullOrWhiteSpace(message.EventId))
             return;
 
         if (!string.Equals(message.SenderAccountId, _localAccountId, StringComparison.Ordinal))
             return;
 
         if (_journal.HasEvent(message.EventId))
+        {
+            await WriteAckAsync(writer, message.EventId, accepted: true);
             return;
+        }
 
         var settings = _settings.Load();
         if (!settings.MirrorClipEnabled)
+        {
+            await WriteAckAsync(writer, message.EventId, accepted: false);
             return;
+        }
 
         await _journal.AppendAsync(message, ct);
         await ApplyRemoteClipboardAsync(message.ContentText);
@@ -242,6 +266,8 @@ public class ClipboardSyncService
             message.ContentText,
             message.SenderDeviceId,
             DateTime.Now));
+
+        await WriteAckAsync(writer, message.EventId, accepted: true);
 
         _log.Info($"MirrorClip received clip from {message.SenderDeviceId}.");
     }
@@ -284,7 +310,7 @@ public class ClipboardSyncService
         return await clipboard.GetTextAsync();
     }
 
-    private async Task SendClipToPeerAsync(string targetIp, ClipboardSyncMessage message, CancellationToken ct)
+    private async Task<bool> SendClipToPeerAsync(string targetIp, ClipboardSyncMessage message, CancellationToken ct)
     {
         using var client = await ConnectViaSocks5Async(targetIp, ClipboardSyncPort, ct);
         if (client is null || !client.Connected)
@@ -292,9 +318,142 @@ public class ClipboardSyncService
 
         using var stream = client.GetStream();
         using var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
+        using var reader = new StreamReader(stream, Encoding.UTF8);
 
         var json = JsonSerializer.Serialize(message);
         await writer.WriteLineAsync(json);
+
+        using var ackTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        ackTimeout.CancelAfter(TimeSpan.FromSeconds(3));
+
+        string? ackLine;
+        try
+        {
+            ackLine = await reader.ReadLineAsync(ackTimeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(ackLine))
+            return false;
+
+        ClipboardSyncMessage? ack;
+        try
+        {
+            ack = JsonSerializer.Deserialize<ClipboardSyncMessage>(ackLine);
+        }
+        catch
+        {
+            return false;
+        }
+
+        return ack is not null
+            && ack.Type == "ack"
+            && ack.Accepted
+            && string.Equals(ack.AckForEventId, message.EventId, StringComparison.Ordinal);
+    }
+
+    private async Task WriteAckAsync(StreamWriter writer, string eventId, bool accepted)
+    {
+        var ack = new ClipboardSyncMessage
+        {
+            Type = "ack",
+            AckForEventId = eventId,
+            Accepted = accepted,
+            SenderDeviceId = Environment.MachineName,
+            SenderAccountId = _localAccountId,
+            TimestampUtc = DateTime.UtcNow
+        };
+
+        await writer.WriteLineAsync(JsonSerializer.Serialize(ack));
+    }
+
+    private void QueuePending(string peerIp, ClipboardSyncMessage message)
+    {
+        var perPeer = _pendingByPeer.GetOrAdd(peerIp, _ => new ConcurrentDictionary<string, ClipboardSyncMessage>(StringComparer.Ordinal));
+        perPeer[message.EventId] = message;
+    }
+
+    private async Task RunReliabilityLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var (_, devices) = await TailscaleService.Instance.GetNetworkStatusAsync(ct);
+                var onlinePeers = devices
+                    .Where(d => d.IsOnline && !d.IsSelf && !string.IsNullOrWhiteSpace(d.IpAddress))
+                    .Select(d => d.IpAddress)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var peer in onlinePeers)
+                {
+                    if (!_knownOnlinePeers.Contains(peer))
+                        await ReplayRecentToPeerAsync(peer, ct);
+
+                    await RetryPendingForPeerAsync(peer, ct);
+                }
+
+                _knownOnlinePeers = onlinePeers;
+                await Task.Delay(5000, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _log.Warning($"MirrorClip reliability loop error: {ex.Message}");
+                await Task.Delay(2000, ct);
+            }
+        }
+    }
+
+    private async Task ReplayRecentToPeerAsync(string peerIp, CancellationToken ct)
+    {
+        var recent = await _journal.GetRecentClipMessagesAsync(10, ct);
+        if (recent.Count == 0)
+            return;
+
+        foreach (var msg in recent)
+        {
+            try
+            {
+                bool acked = await SendClipToPeerAsync(peerIp, msg, ct);
+                if (!acked)
+                    QueuePending(peerIp, msg);
+            }
+            catch
+            {
+                QueuePending(peerIp, msg);
+                break;
+            }
+        }
+
+        _log.Debug($"MirrorClip replayed {recent.Count} recent clips to {peerIp}.");
+    }
+
+    private async Task RetryPendingForPeerAsync(string peerIp, CancellationToken ct)
+    {
+        if (!_pendingByPeer.TryGetValue(peerIp, out var pending) || pending.Count == 0)
+            return;
+
+        foreach (var pair in pending.ToArray())
+        {
+            try
+            {
+                bool acked = await SendClipToPeerAsync(peerIp, pair.Value, ct);
+                if (acked)
+                    pending.TryRemove(pair.Key, out _);
+            }
+            catch
+            {
+                // Keep pending and retry later.
+            }
+        }
     }
 
     private static async Task<TcpClient?> ConnectViaSocks5Async(string targetIp, int port, CancellationToken ct)

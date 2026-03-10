@@ -13,4 +13,8 @@ public class ClipboardSyncMessage
     public string ContentText { get; set; } = "";
     public string ContentHash { get; set; } = "";
     public bool GhostPaste { get; set; } = true;
+
+    // Ack fields (used when Type == "ack")
+    public string AckForEventId { get; set; } = "";
+    public bool Accepted { get; set; } = true;
 }
