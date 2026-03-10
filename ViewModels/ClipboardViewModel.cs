@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Avalonia.Threading;
 using EchoLink.Models;
 using EchoLink.Services;
 
@@ -10,6 +11,7 @@ public partial class ClipboardViewModel : ViewModelBase
 {
     private readonly LoggingService _log = LoggingService.Instance;
     private readonly SettingsService _settings = SettingsService.Instance;
+    private readonly ClipboardSyncService _clipboardSync = ClipboardSyncService.Instance;
 
     [ObservableProperty] private bool _isAutoSyncEnabled;
     [ObservableProperty] private string _statusText = "Idle";
@@ -69,11 +71,8 @@ public partial class ClipboardViewModel : ViewModelBase
 
         _log.Info("EchoShot — Pushing current clipboard to peers...");
         StatusText = "Broadcasting...";
-        await Task.Delay(600);
-        var entry = new ClipboardEntry("[local clipboard content]", "This Device", DateTime.Now);
-        History.Insert(0, entry);
-        TrimHistory();
-        StatusText = "SnapShare — Pushed to all peers.";
+        await _clipboardSync.PushCurrentClipboardAsync();
+        StatusText = "SnapShare — Broadcast complete.";
         _log.Info("Clipboard pushed via SnapShare.");
     }
 
@@ -102,5 +101,15 @@ public partial class ClipboardViewModel : ViewModelBase
         History.Clear();
         StatusText = "History cleared.";
         _log.Info("Clipboard history cleared.");
+    }
+
+    public void OnRemoteClipboardReceived(ClipboardEntry entry)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            History.Insert(0, entry);
+            TrimHistory();
+            StatusText = $"MirrorClip received from {entry.SourceDevice}";
+        });
     }
 }

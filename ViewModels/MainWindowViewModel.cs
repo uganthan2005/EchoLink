@@ -19,6 +19,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty] private string _pairingRequestText = "";
 
     private System.Threading.Tasks.TaskCompletionSource<bool>? _pairingTcs;
+    private readonly ClipboardSyncService _clipboardSync = ClipboardSyncService.Instance;
 
     public DashboardViewModel     Dashboard     { get; } = new();
     public FileTransferViewModel  FileTransfer  { get; } = new();
@@ -36,6 +37,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         _currentPage = Dashboard;
         Settings.SettingsChanged += () => Clipboard.RefreshFromSettings();
+        _clipboardSync.ClipboardReceived += Clipboard.OnRemoteClipboardReceived;
         _ = InitializeSetupAsync();
     }
 
@@ -65,6 +67,8 @@ public partial class MainWindowViewModel : ViewModelBase
             // Prompt user via UI
             return await PromptUserForPairingAsync(hostname);
         });
+
+        await _clipboardSync.StartAsync();
     }
 
     private async System.Threading.Tasks.Task<bool> PromptUserForPairingAsync(string hostname)
@@ -104,6 +108,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async System.Threading.Tasks.Task LogoutAsync()
     {
+        await _clipboardSync.StopAsync();
         await TailscaleService.Instance.LogoutAsync();
         LoggedOut?.Invoke();
     }

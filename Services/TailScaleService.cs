@@ -453,6 +453,40 @@ public class TailscaleService
         }
     }
 
+    public async Task<string?> GetCurrentAccountIdAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var (stdout, _) = await RunCliAsync("status --json", ct);
+            if (string.IsNullOrWhiteSpace(stdout))
+                return null;
+
+            using var doc = JsonDocument.Parse(stdout);
+            if (!doc.RootElement.TryGetProperty("Self", out var self))
+                return null;
+
+            if (self.TryGetProperty("UserID", out var userId))
+            {
+                var value = userId.ToString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+
+            if (self.TryGetProperty("DNSName", out var dnsName))
+            {
+                var value = dnsName.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     // ── Network status (real device list) ───────────────────────────────────
 
     public async Task<(string? SelfIp, System.Collections.Generic.List<Models.Device> Devices)>
@@ -762,6 +796,14 @@ public class TailscaleService
 
     // ── Logout ───────────────────────────────────────────────────────────────
 
+    public async Task ExposeClipboardPortAsync(CancellationToken ct = default)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            await RunCliAsync("serve --bg --tcp 44555 tcp://127.0.0.1:44555", ct);
+        }
+    }
+
         public async Task ExposeLocalPortsAsync(CancellationToken ct = default)
     {
         if (OperatingSystem.IsWindows())
@@ -769,6 +811,7 @@ public class TailscaleService
             _log.Info("[Tailscale] Setting up userspace port forwarding for SSH and Pairing...");
             await RunCliAsync("serve --bg --tcp 22 tcp://127.0.0.1:22", ct);
             await RunCliAsync("serve --bg --tcp 44444 tcp://127.0.0.1:44444", ct);
+            await RunCliAsync("serve --bg --tcp 44555 tcp://127.0.0.1:44555", ct);
         }
     }
 

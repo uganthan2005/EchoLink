@@ -31,7 +31,11 @@ public partial class App : Application
             desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnExplicitShutdown;
 
             // Hook cleanup
-            desktop.Exit += (_, _) => TailscaleService.Instance.StopDaemon();
+            desktop.Exit += async (_, _) =>
+            {
+                await ClipboardSyncService.Instance.StopAsync();
+                TailscaleService.Instance.StopDaemon();
+            };
 
             // Check auth state asynchronously, then show the right window
             _ = ShowStartupWindowAsync(desktop);
