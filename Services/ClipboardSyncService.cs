@@ -17,7 +17,7 @@ public class ClipboardSyncService
     private static readonly Lazy<ClipboardSyncService> _instance = new(() => new ClipboardSyncService());
     public static ClipboardSyncService Instance => _instance.Value;
 
-    private const int ClipboardSyncPort = 44555;
+    private const int ClipboardSyncPort = 44444;
 
     private readonly LoggingService _log = LoggingService.Instance;
     private readonly SettingsService _settings = SettingsService.Instance;
@@ -56,9 +56,9 @@ public class ClipboardSyncService
 
         // Only log on the first failure and every 5 attempts after that
         if (fails == 1 || fails % 5 == 0)
-            _log.Warning($"MirrorClip: cannot reach {peerIp}:44555 (attempt {fails}). " +
+            _log.Warning($"MirrorClip: cannot reach {peerIp}:44444 (attempt {fails}). " +
                          $"Retrying in {seconds}s. Ensure EchoLink is running there and 'tailscale serve' " +
-                         $"exposed port 44555 on that device.");
+                         $"exposed port 44444 on that device.");
     }
 
     private void RecordPeerSuccess(string peerIp)
@@ -76,7 +76,7 @@ public class ClipboardSyncService
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-        // Port 44555 is already exposed by ExposeLocalPortsAsync called from
+        // Port 44444 is already exposed by ExposeLocalPortsAsync called from
         // MainWindowViewModel.InitializeSetupAsync — no need to call it again here.
 
         _localAccountId = await TailscaleService.Instance.GetCurrentAccountIdAsync(_cts.Token)

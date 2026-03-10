@@ -797,20 +797,20 @@ public class TailscaleService
     // ── Logout ───────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// No-op — port 44555 is already configured by <see cref="ExposeLocalPortsAsync"/>.
+    /// No-op — port 44444 is already configured by <see cref="ExposeLocalPortsAsync"/>.
     /// Kept to avoid breaking call-sites compiled against the old signature.
     /// </summary>
     public Task ExposeClipboardPortAsync(CancellationToken ct = default)
     {
-        _log.Debug("[Tailscale] ExposeClipboardPortAsync: clipboard port (44555) was already set up by ExposeLocalPortsAsync — skipping duplicate serve call.");
+        _log.Debug("[Tailscale] ExposeClipboardPortAsync: clipboard port (44444) was already set up by ExposeLocalPortsAsync — skipping duplicate serve call.");
         return Task.CompletedTask;
     }
 
     public async Task ExposeLocalPortsAsync(CancellationToken ct = default)
     {
-        _log.Info("[Tailscale] Setting up port forwarding (SSH=22, Pairing=44444, MirrorClip=44555)...");
+        _log.Info("[Tailscale] Setting up port forwarding (SSH=22, Pairing+MirrorClip=44444)...");
 
-        foreach (var (port, label) in new (int, string)[] { (22, "SSH"), (44444, "Pairing"), (44555, "MirrorClip") })
+        foreach (var (port, label) in new (int, string)[] { (22, "SSH"), (44444, "Pairing/MirrorClip") })
         {
             var (stdout, stderr) = await RunCliAsync($"serve --bg --tcp={port} tcp://127.0.0.1:{port}", ct);
             if (!string.IsNullOrWhiteSpace(stdout))
