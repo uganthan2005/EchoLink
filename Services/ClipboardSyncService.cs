@@ -167,6 +167,12 @@ public class ClipboardSyncService
 
         await _journal.AppendAsync(message, ct);
 
+        // Fire event to add local clip to UI history
+        ClipboardReceived?.Invoke(new ClipboardEntry(
+            message.ContentText,
+            message.OriginDeviceId + " (me)",
+            DateTime.Now));
+
         var peers = devices
             .Where(d => d.IsOnline && !d.IsSelf && !string.IsNullOrWhiteSpace(d.IpAddress))
             .Select(d => d.IpAddress)

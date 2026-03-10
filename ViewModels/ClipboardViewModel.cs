@@ -20,12 +20,7 @@ public partial class ClipboardViewModel : ViewModelBase
     [ObservableProperty] private bool _isSnapShareActive;
     [ObservableProperty] private int _historyLimit = 50;
 
-    public ObservableCollection<ClipboardEntry> History { get; } =
-    [
-        new ClipboardEntry("Hello from EchoLink!",           "Gautam-Desktop", DateTime.Now.AddMinutes(-2)),
-        new ClipboardEntry("https://github.com/fosshack2026", "Gautam-Phone",   DateTime.Now.AddMinutes(-8)),
-        new ClipboardEntry("Meeting at 3 PM — don't forget!", "Gautam-Laptop",  DateTime.Now.AddMinutes(-45)),
-    ];
+    public ObservableCollection<ClipboardEntry> History { get; } = new();
 
     public ClipboardViewModel()
     {
@@ -69,7 +64,24 @@ public partial class ClipboardViewModel : ViewModelBase
             return;
         }
 
-        _log.Info("EchoShot — Pushing current clipboard to peers...");
+        var app = Avalonia.Application.Current;
+        if (app?.ApplicationLifetime is
+            Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime dt
+            && dt.MainWindow is { } window)
+        {
+            var clipboard = Avalonia.Controls.TopLevel.GetTopLevel(window)?.Clipboard;
+            if (clipboard is not null)
+            {
+                var text = await clipboard.GetTextAsync();
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    StatusText = "Clipboard is empty";
+                    return;
+                }
+            }
+        }
+
+        _log.Info("SnapShare — Pushing current clipboard to peers...");
         StatusText = "Broadcasting...";
         await _clipboardSync.PushCurrentClipboardAsync();
         StatusText = "SnapShare — Broadcast complete.";
