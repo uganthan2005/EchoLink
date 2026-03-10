@@ -259,7 +259,7 @@ namespace EchoLink.Services
             }
 
             // Always enforce permissions on every key addition to ensure OpenSSH doesn't reject it
-            if (OperatingSystem.IsLinux())
+            if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
             {
                 Process.Start(new ProcessStartInfo("chmod", $"600 \"{authKeysPath}\""));
             }

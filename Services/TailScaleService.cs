@@ -601,12 +601,9 @@ public async Task LoginAsync(Action<string> onAuthUrl, CancellationToken ct = de
             return;
         }
 
-        if (OperatingSystem.IsWindows())
-        {
-            _log.Info("[Tailscale] Setting up userspace port forwarding for SSH (2222) and Pairing (44444)...");
-            await RunCliAsync("serve --bg --tcp 2222 tcp://127.0.0.1:22", ct);
-            await RunCliAsync("serve --bg --tcp 44444 tcp://127.0.0.1:44444", ct);
-        }
+        _log.Info("[Tailscale] Setting up userspace port forwarding for SSH (2222) and Pairing (44444)...");
+        await RunCliAsync("serve --bg --tcp 2222 tcp://127.0.0.1:22", ct);
+        await RunCliAsync("serve --bg --tcp 44444 tcp://127.0.0.1:44444", ct);
     }
 
     public async Task LogoutAsync(CancellationToken ct = default)

@@ -21,6 +21,12 @@ namespace EchoLink.Services
 
                 return isRunning && isConfigPatched;
             }
+            else if (OperatingSystem.IsMacOS())
+            {
+                // On macOS, OpenSSH is built-in. We just need to check if Remote Login is turned on.
+                var result = await RunCommandAsync("systemsetup", "-getremotelogin");
+                return result.StandardOutput.Contains("On", StringComparison.OrdinalIgnoreCase);
+            }
             else if (OperatingSystem.IsLinux())
             {
                 // Check if sshd is running or installed
@@ -119,6 +125,32 @@ exit 0
                 {
                     if (File.Exists(tmpScriptFile))
                         File.Delete(tmpScriptFile);
+                }
+            }
+            else if (OperatingSystem.IsMacOS())
+            {
+                // macOS requires elevating to enable Remote Login (SSH)
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "osascript",
+                    Arguments = "-e 'do shell script \"systemsetup -f -setremotelogin on\" with administrator privileges'",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                try
+                {
+                    var process = Process.Start(psi);
+                    if (process != null)
+                    {
+                        await process.WaitForExitAsync();
+                        return process.ExitCode == 0;
+                    }
+                }
+                catch
+                {
+                    return false;
                 }
             }
             else if (OperatingSystem.IsLinux())
