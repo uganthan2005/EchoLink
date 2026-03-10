@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Avalonia.Threading;
@@ -19,12 +20,17 @@ public partial class ClipboardViewModel : ViewModelBase
     [ObservableProperty] private bool _isGhostPasteActive;
     [ObservableProperty] private bool _isSnapShareActive;
     [ObservableProperty] private int _historyLimit = 50;
+    [ObservableProperty] private bool _isLoadingShareDevices;
+
+    private bool _updatingDeviceSelection;
 
     public ObservableCollection<ClipboardEntry> History { get; } = new();
+    public ObservableCollection<ClipboardShareDevice> ShareDevices { get; } = new();
 
     public ClipboardViewModel()
     {
         RefreshFromSettings();
+        _ = RefreshShareDevicesAsync();
     }
 
     /// <summary>
@@ -40,12 +46,85 @@ public partial class ClipboardViewModel : ViewModelBase
 
         IsAutoSyncEnabled = IsMirrorClipActive;
         TrimHistory();
+        ApplySelectionFromSettings(data);
     }
 
     private void TrimHistory()
     {
         while (History.Count > HistoryLimit)
             History.RemoveAt(History.Count - 1);
+    }
+
+    [RelayCommand]
+    private async Task RefreshShareDevicesAsync()
+    {
+        if (IsLoadingShareDevices)
+            return;
+
+        IsLoadingShareDevices = true;
+
+        try
+        {
+            var settings = _settings.Load();
+            var (_, devices) = await TailscaleService.Instance.GetNetworkStatusAsync();
+
+            foreach (var existing in ShareDevices)
+                existing.PropertyChanged -= OnShareDevicePropertyChanged;
+
+            ShareDevices.Clear();
+
+            var selected = settings.ClipboardShareTargets
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            bool useTargetSelection = settings.ClipboardUseTargetSelection;
+
+            foreach (var d in devices.Where(d => !d.IsSelf && !string.IsNullOrWhiteSpace(d.IpAddress)))
+            {
+                var item = new ClipboardShareDevice
+                {
+                    Name = d.Name,
+                    IpAddress = d.IpAddress,
+                    IsOnline = d.IsOnline,
+                    IsSelf = d.IsSelf,
+                    IsSelected = !useTargetSelection || selected.Contains(d.IpAddress)
+                };
+
+                item.PropertyChanged += OnShareDevicePropertyChanged;
+                ShareDevices.Add(item);
+            }
+
+            if (ShareDevices.Count == 0)
+                StatusText = "No peer devices available for clipboard share";
+        }
+        catch (Exception ex)
+        {
+            _log.Warning($"Clipboard share device refresh failed: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingShareDevices = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task SelectAllShareDevicesAsync()
+    {
+        _updatingDeviceSelection = true;
+        foreach (var device in ShareDevices)
+            device.IsSelected = true;
+        _updatingDeviceSelection = false;
+
+        await SaveSelectedTargetsAsync();
+    }
+
+    [RelayCommand]
+    private async Task SelectNoneShareDevicesAsync()
+    {
+        _updatingDeviceSelection = true;
+        foreach (var device in ShareDevices)
+            device.IsSelected = false;
+        _updatingDeviceSelection = false;
+
+        await SaveSelectedTargetsAsync();
     }
 
     partial void OnIsAutoSyncEnabledChanged(bool value)
@@ -92,6 +171,44 @@ public partial class ClipboardViewModel : ViewModelBase
         await _clipboardSync.PushCurrentClipboardAsync();
         StatusText = "SnapShare — Broadcast complete.";
         _log.Info("Clipboard pushed via SnapShare.");
+    }
+
+    private async void OnShareDevicePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_updatingDeviceSelection)
+            return;
+
+        if (e.PropertyName == nameof(ClipboardShareDevice.IsSelected))
+            await SaveSelectedTargetsAsync();
+    }
+
+    private async Task SaveSelectedTargetsAsync()
+    {
+        var selectedIps = ShareDevices
+            .Where(d => d.IsSelected)
+            .Select(d => d.IpAddress)
+            .ToList();
+
+        await _clipboardSync.UpdateClipboardShareTargetsAsync(selectedIps);
+
+        StatusText = selectedIps.Count == 0
+            ? "Clipboard share targets cleared"
+            : $"Clipboard sharing set to {selectedIps.Count} device(s)";
+    }
+
+    private void ApplySelectionFromSettings(SettingsData settings)
+    {
+        if (ShareDevices.Count == 0)
+            return;
+
+        var selected = settings.ClipboardShareTargets
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool useTargetSelection = settings.ClipboardUseTargetSelection;
+
+        _updatingDeviceSelection = true;
+        foreach (var device in ShareDevices)
+            device.IsSelected = !useTargetSelection || selected.Contains(device.IpAddress);
+        _updatingDeviceSelection = false;
     }
 
     [RelayCommand]

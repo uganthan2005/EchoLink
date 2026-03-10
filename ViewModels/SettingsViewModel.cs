@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EchoLink.Models;
@@ -16,6 +17,9 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _ghostPasteEnabled = true;
     [ObservableProperty] private bool _snapShareEnabled = true;
     [ObservableProperty] private int _clipboardHistoryLimit = 50;
+    [ObservableProperty] private bool _isLoadingClipboardDevices;
+
+    private bool _updatingClipboardSelection;
 
     // ── General ─────────────────────────────────────────────────────────
     [ObservableProperty] private bool _launchOnStartup;
@@ -24,6 +28,7 @@ public partial class SettingsViewModel : ViewModelBase
 
     // ── Hotkeys ─────────────────────────────────────────────────────────
     public ObservableCollection<HotkeyBinding> Hotkeys { get; } = [];
+    public ObservableCollection<ClipboardShareDevice> ClipboardShareDevices { get; } = [];
 
     // ── Status ──────────────────────────────────────────────────────────
     [ObservableProperty] private string _statusText = "";
@@ -37,6 +42,7 @@ public partial class SettingsViewModel : ViewModelBase
     public SettingsViewModel()
     {
         LoadSettings();
+        _ = RefreshClipboardDevicesAsync();
     }
 
     private void LoadSettings()
@@ -67,6 +73,8 @@ public partial class SettingsViewModel : ViewModelBase
         }
 
         _log.Debug("Settings loaded.");
+
+        ApplyClipboardSelectionFromData(data);
     }
 
     private static List<HotkeyBinding> GetDefaultHotkeys() =>
@@ -84,12 +92,20 @@ public partial class SettingsViewModel : ViewModelBase
     [RelayCommand]
     private void SaveSettings()
     {
+        var selectedTargets = ClipboardShareDevices
+            .Where(d => d.IsSelected)
+            .Select(d => d.IpAddress)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         var data = new SettingsData
         {
             MirrorClipEnabled = MirrorClipEnabled,
             GhostPasteEnabled = GhostPasteEnabled,
             SnapShareEnabled = SnapShareEnabled,
             ClipboardHistoryLimit = ClipboardHistoryLimit,
+            ClipboardUseTargetSelection = true,
+            ClipboardShareTargets = selectedTargets,
 
             LaunchOnStartup = LaunchOnStartup,
             MinimizeToTray = MinimizeToTray,
@@ -104,6 +120,7 @@ public partial class SettingsViewModel : ViewModelBase
         };
 
         _settings.Save(data);
+        _ = ClipboardSyncService.Instance.UpdateClipboardShareTargetsAsync(selectedTargets);
         StatusText = "Settings saved";
         ShowSaved = true;
         SettingsChanged?.Invoke();
@@ -126,6 +143,11 @@ public partial class SettingsViewModel : ViewModelBase
         SnapShareEnabled = true;
         ClipboardHistoryLimit = 50;
 
+        _updatingClipboardSelection = true;
+        foreach (var device in ClipboardShareDevices)
+            device.IsSelected = true;
+        _updatingClipboardSelection = false;
+
         LaunchOnStartup = false;
         MinimizeToTray = true;
         ShowNotifications = true;
@@ -136,5 +158,92 @@ public partial class SettingsViewModel : ViewModelBase
 
         StatusText = "Defaults restored — click Save to apply";
         _log.Info("Settings reset to defaults.");
+    }
+
+    [RelayCommand]
+    private async Task RefreshClipboardDevicesAsync()
+    {
+        if (IsLoadingClipboardDevices)
+            return;
+
+        IsLoadingClipboardDevices = true;
+
+        try
+        {
+            var data = _settings.Load();
+            var selected = data.ClipboardShareTargets
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            bool useTargetSelection = data.ClipboardUseTargetSelection;
+
+            foreach (var item in ClipboardShareDevices)
+                item.PropertyChanged -= OnClipboardShareDevicePropertyChanged;
+
+            ClipboardShareDevices.Clear();
+
+            var (_, devices) = await TailscaleService.Instance.GetNetworkStatusAsync();
+            foreach (var d in devices.Where(d => !d.IsSelf && !string.IsNullOrWhiteSpace(d.IpAddress)))
+            {
+                var item = new ClipboardShareDevice
+                {
+                    Name = d.Name,
+                    IpAddress = d.IpAddress,
+                    IsOnline = d.IsOnline,
+                    IsSelf = d.IsSelf,
+                    IsSelected = !useTargetSelection || selected.Contains(d.IpAddress)
+                };
+
+                item.PropertyChanged += OnClipboardShareDevicePropertyChanged;
+                ClipboardShareDevices.Add(item);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Warning($"Failed to refresh clipboard target devices: {ex.Message}");
+        }
+        finally
+        {
+            IsLoadingClipboardDevices = false;
+        }
+    }
+
+    [RelayCommand]
+    private void SelectAllClipboardDevices()
+    {
+        _updatingClipboardSelection = true;
+        foreach (var device in ClipboardShareDevices)
+            device.IsSelected = true;
+        _updatingClipboardSelection = false;
+    }
+
+    [RelayCommand]
+    private void SelectNoneClipboardDevices()
+    {
+        _updatingClipboardSelection = true;
+        foreach (var device in ClipboardShareDevices)
+            device.IsSelected = false;
+        _updatingClipboardSelection = false;
+    }
+
+    private void ApplyClipboardSelectionFromData(SettingsData data)
+    {
+        if (ClipboardShareDevices.Count == 0)
+            return;
+
+        var selected = data.ClipboardShareTargets
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        _updatingClipboardSelection = true;
+        foreach (var device in ClipboardShareDevices)
+            device.IsSelected = !data.ClipboardUseTargetSelection || selected.Contains(device.IpAddress);
+        _updatingClipboardSelection = false;
+    }
+
+    private void OnClipboardShareDevicePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_updatingClipboardSelection)
+            return;
+
+        if (e.PropertyName == nameof(ClipboardShareDevice.IsSelected))
+            StatusText = "Clipboard target selection changed — click Save to apply";
     }
 }

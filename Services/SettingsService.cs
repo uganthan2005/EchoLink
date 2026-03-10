@@ -64,6 +64,8 @@ public class SettingsData
     public bool GhostPasteEnabled { get; set; } = true;
     public bool SnapShareEnabled { get; set; } = true;
     public int ClipboardHistoryLimit { get; set; } = 50;
+    public bool ClipboardUseTargetSelection { get; set; }
+    public List<string> ClipboardShareTargets { get; set; } = [];
 
     // ── General ──
     public bool LaunchOnStartup { get; set; }

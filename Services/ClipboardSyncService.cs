@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
@@ -99,6 +100,32 @@ public class ClipboardSyncService
         await BroadcastClipboardAsync(text, ct);
     }
 
+    public Task UpdateClipboardShareTargetsAsync(IEnumerable<string> targetIps)
+    {
+        var settings = _settings.Load();
+        settings.ClipboardShareTargets = targetIps
+            .Where(ip => !string.IsNullOrWhiteSpace(ip))
+            .Select(ip => ip.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        settings.ClipboardUseTargetSelection = true;
+
+        _settings.Save(settings);
+
+        // Drop pending messages for peers no longer selected for clipboard share.
+        var selected = settings.ClipboardShareTargets
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var peerIp in _pendingByPeer.Keys.ToArray())
+        {
+            if (selected.Count > 0 && !selected.Contains(peerIp))
+                _pendingByPeer.TryRemove(peerIp, out _);
+        }
+
+        _log.Info($"MirrorClip: updated clipboard target list ({settings.ClipboardShareTargets.Count} selected peer(s)).");
+        return Task.CompletedTask;
+    }
+
     private async Task RunMonitorAsync(CancellationToken ct)
     {
         _log.Info("MirrorClip monitor loop started.");
@@ -183,8 +210,7 @@ public class ClipboardSyncService
             message.OriginDeviceId + " (me)",
             DateTime.Now));
 
-        var peers = devices
-            .Where(d => d.IsOnline && !d.IsSelf && !string.IsNullOrWhiteSpace(d.IpAddress))
+        var peers = GetEligibleClipboardPeers(devices, settings)
             .Select(d => d.IpAddress)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -453,8 +479,8 @@ public class ClipboardSyncService
             try
             {
                 var (_, devices) = await TailscaleService.Instance.GetNetworkStatusAsync(ct);
-                var onlinePeers = devices
-                    .Where(d => d.IsOnline && !d.IsSelf && !string.IsNullOrWhiteSpace(d.IpAddress))
+                var settings = _settings.Load();
+                var onlinePeers = GetEligibleClipboardPeers(devices, settings)
                     .Select(d => d.IpAddress)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -527,31 +553,37 @@ public class ClipboardSyncService
     }
 
     /// <summary>
-    /// Tries SOCKS5 proxy first (for userspace networking), then falls back to direct TCP.
+    /// Tries SOCKS5 proxy first (for userspace networking).
+    ///
+    /// MirrorClip follows the same transport model as SSH/SFTP in this app, which
+    /// consistently tunnels through tailscaled SOCKS5 when userspace networking is enabled.
     /// </summary>
     private async Task<TcpClient?> ConnectToPeerAsync(string targetIp, int port, CancellationToken ct)
     {
-        // Try SOCKS5 first
-        var socks = await ConnectViaSocks5Async(targetIp, port, ct);
-        if (socks is not null)
-            return socks;
+        return await ConnectViaSocks5Async(targetIp, port, ct);
+    }
 
-        // Fallback: direct TCP (works if Tailscale kernel networking or same LAN)
-        _log.Debug($"MirrorClip: SOCKS5 failed for {targetIp}:{port}, trying direct TCP...");
-        var direct = new TcpClient();
-        try
+    private static IEnumerable<Device> GetEligibleClipboardPeers(
+        IEnumerable<Device> devices,
+        SettingsData settings)
+    {
+        var selected = settings.ClipboardShareTargets
+            .Where(ip => !string.IsNullOrWhiteSpace(ip))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var device in devices)
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(4));
-            await direct.ConnectAsync(targetIp, port, timeout.Token);
-            _log.Info($"MirrorClip: direct TCP connection to {targetIp}:{port} succeeded.");
-            return direct;
-        }
-        catch (Exception ex)
-        {
-            _log.Warning($"MirrorClip: direct TCP to {targetIp}:{port} also failed: {ex.Message}");
-            direct.Dispose();
-            return null;
+            if (!device.IsOnline || device.IsSelf || string.IsNullOrWhiteSpace(device.IpAddress))
+                continue;
+
+            if (!settings.ClipboardUseTargetSelection)
+            {
+                yield return device;
+                continue;
+            }
+
+            if (selected.Contains(device.IpAddress))
+                yield return device;
         }
     }
 

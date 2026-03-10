@@ -15,7 +15,7 @@
         <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,20">
             <TextBlock Text="Clipboard Hub"
                        FontSize="28" FontWeight="Bold" Foreground="#FFFFFF"/>
-            <TextBlock Text="Sync clipboard entries across all mesh devices"
+            <TextBlock Text="Sync clipboard entries across selected mesh devices"
                        FontSize="13" Foreground="#B3B3B3"/>
         </StackPanel>
 
@@ -72,6 +72,66 @@
                     </Border>
                 </StackPanel>
             </Grid>
+        </Border>
+
+        <!-- Share targets card -->
+        <Border DockPanel.Dock="Top" Classes="Card" Margin="0,0,0,16">
+            <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                    <TextBlock Grid.Column="0"
+                               Text="Clipboard Share Targets"
+                               FontSize="13"
+                               Foreground="#B3B3B3"
+                               VerticalAlignment="Center"/>
+                    <Button Grid.Column="1"
+                            Content="All"
+                            Command="{Binding SelectAllShareDevicesCommand}"
+                            Padding="10,4"
+                            Background="Transparent"
+                            Foreground="#00E5FF"/>
+                    <Button Grid.Column="2"
+                            Content="None"
+                            Command="{Binding SelectNoneShareDevicesCommand}"
+                            Padding="10,4"
+                            Background="Transparent"
+                            Foreground="#FFB74D"/>
+                    <Button Grid.Column="3"
+                            Content="Refresh"
+                            Command="{Binding RefreshShareDevicesCommand}"
+                            Padding="10,4"
+                            Background="Transparent"
+                            Foreground="#3273F6"/>
+                </Grid>
+
+                <TextBlock Text="Only selected devices receive SnapShare and MirrorClip updates."
+                           FontSize="11"
+                           Foreground="#888888"/>
+
+                <ItemsControl ItemsSource="{Binding ShareDevices}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="m:ClipboardShareDevice">
+                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2,0,2">
+                                <CheckBox Grid.Column="0"
+                                          IsChecked="{Binding IsSelected}"
+                                          VerticalAlignment="Center"
+                                          Margin="0,0,8,0"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{Binding Name}" Foreground="#FFFFFF"/>
+                                    <TextBlock Text="{Binding IpAddress}"
+                                               Foreground="#B3B3B3"
+                                               FontSize="11"
+                                               FontFamily="Consolas, monospace"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding OnlineLabel}"
+                                           Foreground="#B3B3B3"
+                                           FontSize="11"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
         </Border>
 
         <!-- Actions row -->
