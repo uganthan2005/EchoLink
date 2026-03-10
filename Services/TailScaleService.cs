@@ -796,19 +796,37 @@ public class TailscaleService
 
     // ── Logout ───────────────────────────────────────────────────────────────
 
-    public async Task ExposeClipboardPortAsync(CancellationToken ct = default)
+    /// <summary>
+    /// No-op — port 44555 is already configured by <see cref="ExposeLocalPortsAsync"/>.
+    /// Kept to avoid breaking call-sites compiled against the old signature.
+    /// </summary>
+    public Task ExposeClipboardPortAsync(CancellationToken ct = default)
     {
-        var (_, stderr) = await RunCliAsync("serve --bg --tcp 44555 tcp://127.0.0.1:44555", ct);
-        if (!string.IsNullOrWhiteSpace(stderr))
-            _log.Warning($"[Tailscale] Clipboard port expose warning: {stderr.Trim()}");
+        _log.Debug("[Tailscale] ExposeClipboardPortAsync: clipboard port (44555) was already set up by ExposeLocalPortsAsync — skipping duplicate serve call.");
+        return Task.CompletedTask;
     }
 
     public async Task ExposeLocalPortsAsync(CancellationToken ct = default)
     {
-        _log.Info("[Tailscale] Setting up userspace port forwarding for SSH, Pairing, and MirrorClip...");
-        await RunCliAsync("serve --bg --tcp 22 tcp://127.0.0.1:22", ct);
-        await RunCliAsync("serve --bg --tcp 44444 tcp://127.0.0.1:44444", ct);
-        await RunCliAsync("serve --bg --tcp 44555 tcp://127.0.0.1:44555", ct);
+        _log.Info("[Tailscale] Setting up port forwarding (SSH=22, Pairing=44444, MirrorClip=44555)...");
+
+        foreach (var (port, label) in new (int, string)[] { (22, "SSH"), (44444, "Pairing"), (44555, "MirrorClip") })
+        {
+            var (stdout, stderr) = await RunCliAsync($"serve --bg --tcp={port} tcp://127.0.0.1:{port}", ct);
+            if (!string.IsNullOrWhiteSpace(stdout))
+                _log.Debug($"[Tailscale] Serve {label} stdout: {stdout.Trim()}");
+            if (!string.IsNullOrWhiteSpace(stderr))
+                _log.Warning($"[Tailscale] Serve {label} error: {stderr.Trim()}");
+        }
+
+        // Verify what Tailscale is actually forwarding so any misconfiguration shows up
+        // in the Debug Console immediately.
+        var (status, _) = await RunCliAsync("serve status", ct);
+        if (!string.IsNullOrWhiteSpace(status))
+            _log.Info($"[Tailscale] Active serve config:\n{status.Trim()}");
+        else
+            _log.Warning("[Tailscale] 'tailscale serve status' returned no output — ports may NOT be exposed to peers. " +
+                         "Check that 'tailscale serve' is supported on this platform/version.");
     }
 
     public async Task LogoutAsync(CancellationToken ct = default)

@@ -34,9 +34,40 @@ public class ClipboardSyncService
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, ClipboardSyncMessage>> _pendingByPeer = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _knownOnlinePeers = new(StringComparer.OrdinalIgnoreCase);
 
+    // Per-peer failure tracking — stops SOCKS5 rejection spam and retries
+    private readonly ConcurrentDictionary<string, int> _peerFailCount = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTime> _peerCooldownUntil = new(StringComparer.OrdinalIgnoreCase);
+
     public event Action<ClipboardEntry>? ClipboardReceived;
 
     private ClipboardSyncService() { }
+
+    // ── Peer-failure helpers ─────────────────────────────────────────────────
+
+    private bool IsOnCooldown(string peerIp)
+        => _peerCooldownUntil.TryGetValue(peerIp, out var until) && DateTime.UtcNow < until;
+
+    private void RecordPeerFailure(string peerIp)
+    {
+        var fails = _peerFailCount.AddOrUpdate(peerIp, 1, (_, v) => v + 1);
+        // Exponential back-off: 30 s → 60 s → 120 s → 240 s → 300 s (max)
+        var seconds = (int)Math.Min(30 * Math.Pow(2, fails - 1), 300);
+        _peerCooldownUntil[peerIp] = DateTime.UtcNow.AddSeconds(seconds);
+
+        // Only log on the first failure and every 5 attempts after that
+        if (fails == 1 || fails % 5 == 0)
+            _log.Warning($"MirrorClip: cannot reach {peerIp}:44555 (attempt {fails}). " +
+                         $"Retrying in {seconds}s. Ensure EchoLink is running there and 'tailscale serve' " +
+                         $"exposed port 44555 on that device.");
+    }
+
+    private void RecordPeerSuccess(string peerIp)
+    {
+        _peerFailCount.TryRemove(peerIp, out _);
+        _peerCooldownUntil.TryRemove(peerIp, out _);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
 
     public async Task StartAsync(CancellationToken ct = default)
     {
@@ -45,8 +76,8 @@ public class ClipboardSyncService
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-        _log.Info("MirrorClip: exposing clipboard port via Tailscale serve...");
-        await TailscaleService.Instance.ExposeClipboardPortAsync(_cts.Token);
+        // Port 44555 is already exposed by ExposeLocalPortsAsync called from
+        // MainWindowViewModel.InitializeSetupAsync — no need to call it again here.
 
         _localAccountId = await TailscaleService.Instance.GetCurrentAccountIdAsync(_cts.Token)
             ?? "unknown-account";
@@ -221,15 +252,27 @@ public class ClipboardSyncService
 
         foreach (var peerIp in peers)
         {
+            if (IsOnCooldown(peerIp))
+            {
+                QueuePending(peerIp, message); // will retry when cooldown expires
+                continue;
+            }
+
             try
             {
                 bool acked = await SendClipToPeerAsync(peerIp, message, ct);
-                if (!acked)
+                if (acked)
+                    RecordPeerSuccess(peerIp);
+                else
+                {
+                    RecordPeerFailure(peerIp);
                     QueuePending(peerIp, message);
+                }
             }
             catch (Exception ex)
             {
-                _log.Warning($"MirrorClip send failed to {peerIp}: {ex.Message}");
+                _log.Debug($"MirrorClip send failed to {peerIp}: {ex.Message}");
+                RecordPeerFailure(peerIp);
                 QueuePending(peerIp, message);
             }
         }
@@ -510,6 +553,9 @@ public class ClipboardSyncService
 
     private async Task ReplayRecentToPeerAsync(string peerIp, CancellationToken ct)
     {
+        if (IsOnCooldown(peerIp))
+            return;
+
         var recent = await _journal.GetRecentClipMessagesAsync(10, ct);
         if (recent.Count == 0)
             return;
@@ -519,11 +565,18 @@ public class ClipboardSyncService
             try
             {
                 bool acked = await SendClipToPeerAsync(peerIp, msg, ct);
-                if (!acked)
+                if (acked)
+                    RecordPeerSuccess(peerIp);
+                else
+                {
+                    RecordPeerFailure(peerIp);
                     QueuePending(peerIp, msg);
+                    break; // stop replaying once peer becomes unreachable
+                }
             }
             catch
             {
+                RecordPeerFailure(peerIp);
                 QueuePending(peerIp, msg);
                 break;
             }
@@ -537,17 +590,29 @@ public class ClipboardSyncService
         if (!_pendingByPeer.TryGetValue(peerIp, out var pending) || pending.Count == 0)
             return;
 
+        if (IsOnCooldown(peerIp))
+            return;
+
         foreach (var pair in pending.ToArray())
         {
             try
             {
                 bool acked = await SendClipToPeerAsync(peerIp, pair.Value, ct);
                 if (acked)
+                {
+                    RecordPeerSuccess(peerIp);
                     pending.TryRemove(pair.Key, out _);
+                }
+                else
+                {
+                    RecordPeerFailure(peerIp);
+                    break; // stop retrying this peer this cycle
+                }
             }
             catch
             {
-                // Keep pending and retry later.
+                RecordPeerFailure(peerIp);
+                break;
             }
         }
     }
