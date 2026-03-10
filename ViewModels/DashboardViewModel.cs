@@ -107,4 +107,43 @@ public partial class DashboardViewModel : ViewModelBase
         }
         _log.Info($"Copied IP {TailscaleIp} to clipboard.");
     }
+
+    [RelayCommand]
+    private async Task PairDeviceAsync(Device device)
+    {
+        if (device == null || string.IsNullOrWhiteSpace(device.IpAddress) || device.IsSelf) 
+            return;
+
+        if (!device.IsOnline)
+        {
+            _log.Warning($"[Dashboard] Cannot pair because {device.Name} is currently offline.");
+            return;
+        }
+
+        try
+        {
+            _log.Info($"[Dashboard] Requesting manual pairing with {device.IpAddress}...");
+            var pairingService = new SshPairingService(TailscaleService.Instance);
+            await pairingService.EnsureKeyPairAsync();
+            
+            var result = await pairingService.RequestPairingAsync(device.IpAddress, Environment.MachineName, Environment.UserName);
+            if (result.Accepted && !string.IsNullOrWhiteSpace(result.TargetUsername))
+            {
+                var settingsData = SettingsService.Instance.Load();
+                settingsData.PeerUsernames[device.IpAddress] = result.TargetUsername;
+                SettingsService.Instance.Save(settingsData);
+                
+                device.IsPaired = true;
+                _log.Info($"[Dashboard] Successfully paired with {device.IpAddress}");
+            }
+            else
+            {
+                _log.Warning($"[Dashboard] Pairing request rejected or timed out for {device.IpAddress}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"[Dashboard] Error pairing with {device.IpAddress}: {ex.Message}");
+        }
+    }
 }

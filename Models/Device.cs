@@ -11,6 +11,7 @@ public partial class Device : ObservableObject
     [ObservableProperty] private string _os = string.Empty;
     [ObservableProperty] private string _lastSeen = string.Empty;
     [ObservableProperty] private bool _isSelf;
+    [ObservableProperty] private bool _isPaired;
     [ObservableProperty] private int _sftpPort = 22; // Default to 22
 
     public string StatusLabel => IsSelf ? "This device" : (IsOnline ? "Online" : "Offline");

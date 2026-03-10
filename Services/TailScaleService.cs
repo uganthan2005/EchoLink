@@ -374,6 +374,40 @@ public class TailscaleService
         return NativeBridge?.GetTailscaleIp();
     }
 
+    public async Task<string?> GetCurrentAccountIdAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var (stdout, _) = await RunCliAsync("status --json", ct);
+            if (string.IsNullOrWhiteSpace(stdout))
+                return null;
+
+            using var doc = JsonDocument.Parse(stdout);
+            if (!doc.RootElement.TryGetProperty("Self", out var self))
+                return null;
+
+            if (self.TryGetProperty("UserID", out var userId))
+            {
+                var value = userId.ToString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+
+            if (self.TryGetProperty("DNSName", out var dnsName))
+            {
+                var value = dnsName.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<(string? SelfIp, System.Collections.Generic.List<Models.Device> Devices)>
         GetNetworkStatusAsync(CancellationToken ct = default)
     {
@@ -404,7 +438,10 @@ public class TailscaleService
         try
         {
             var (stdout, _) = await RunCliAsync("status --json", ct);
-            if (string.IsNullOrWhiteSpace(stdout)) return (null, devices);
+            if (string.IsNullOrWhiteSpace(stdout))
+                return (null, devices);
+
+            var settingsData = SettingsService.Instance.Load();
 
             using var doc = JsonDocument.Parse(stdout);
             var root = doc.RootElement;
@@ -415,13 +452,13 @@ public class TailscaleService
             if (root.TryGetProperty("Self", out var self))
             {
                 selfIp = ExtractIpv4(self);
-                devices.Add(ParseDevice(self, isSelf: true));
+                devices.Add(ParseDevice(self, isSelf: true, settingsData));
             }
 
             if (root.TryGetProperty("Peer", out var peers) && peers.ValueKind == JsonValueKind.Object)
             {
                 foreach (var peer in peers.EnumerateObject())
-                    devices.Add(ParseDevice(peer.Value, isSelf: false));
+                    devices.Add(ParseDevice(peer.Value, isSelf: false, settingsData));
             }
         }
         catch (Exception ex) { _log.Error($"[Tailscale] Failed to parse status: {ex.Message}"); }
@@ -440,7 +477,7 @@ public class TailscaleService
         return ips.GetArrayLength() > 0 ? ips[0].GetString() : null;
     }
 
-    private static Models.Device ParseDevice(JsonElement node, bool isSelf)
+    private static Models.Device ParseDevice(JsonElement node, bool isSelf, SettingsData settingsData)
     {
         string hostName = node.TryGetProperty("HostName", out var hn) ? hn.GetString() ?? "" : "";
         string os = node.TryGetProperty("OS", out var osEl) ? osEl.GetString() ?? "" : "";
@@ -457,7 +494,16 @@ public class TailscaleService
 
         string lastSeen = "";
         if (node.TryGetProperty("LastSeen", out var ls) && DateTime.TryParse(ls.GetString(), out var dt))
+            {
+                // Spoof "Online" status if device was seen in the last hour
+                if (!online && (DateTime.UtcNow - dt).TotalMinutes <= 60)
+                {
+                    online = true;
+                }
             lastSeen = dt.ToLocalTime().ToString("g");
+            }
+
+        bool isPaired = isSelf || (settingsData.PeerUsernames != null && settingsData.PeerUsernames.ContainsKey(ip));
 
         return new Models.Device
         {
@@ -467,7 +513,8 @@ public class TailscaleService
             DeviceType = deviceType,
             Os = os,
             LastSeen = lastSeen,
-            IsSelf = isSelf
+            IsSelf = isSelf,
+            IsPaired = isPaired
         };
     }
 public async Task LoginAsync(Action<string> onAuthUrl, CancellationToken ct = default)
@@ -593,8 +640,39 @@ public async Task LoginAsync(Action<string> onAuthUrl, CancellationToken ct = de
         catch { return false; }
     }
 
+    /// <summary>
+    /// No-op — port 44444 is already configured by <see cref="ExposeLocalPortsAsync"/>.
+    /// Kept to avoid breaking call-sites compiled against the old signature.
+    /// </summary>
+    public Task ExposeClipboardPortAsync(CancellationToken ct = default)
+    {
+        _log.Debug("[Tailscale] ExposeClipboardPortAsync: clipboard port (44444) was already set up by ExposeLocalPortsAsync — skipping duplicate serve call.");
+        return Task.CompletedTask;
+    }
+
     public async Task ExposeLocalPortsAsync(CancellationToken ct = default)
     {
+        _log.Info("[Tailscale] Setting up port forwarding (SSH=22, Pairing=44444)...");
+
+        // We strictly expose port 22 (for all SSH payloads) and Port 44444 (for unauthenticated Key-Pairing).
+        // Clipboard and all future stream services now ride inside the encrypted SSH stream natively!
+        foreach (var (port, label) in new (int, string)[] { (22, "SSH"), (44444, "Pairing") })
+        {
+            var (stdout, stderr) = await RunCliAsync($"serve --bg --tcp={port} tcp://127.0.0.1:{port}", ct);
+            if (!string.IsNullOrWhiteSpace(stdout))
+                _log.Debug($"[Tailscale] Serve {label} stdout: {stdout.Trim()}");
+            if (!string.IsNullOrWhiteSpace(stderr))
+                _log.Warning($"[Tailscale] Serve {label} error: {stderr.Trim()}");
+        }
+
+        // Verify what Tailscale is actually forwarding so any misconfiguration shows up
+        // in the Debug Console immediately.
+        var (status, _) = await RunCliAsync("serve status", ct);
+        if (!string.IsNullOrWhiteSpace(status))
+            _log.Info($"[Tailscale] Active serve config:\n{status.Trim()}");
+        else
+            _log.Warning("[Tailscale] 'tailscale serve status' returned no output — ports may NOT be exposed to peers. " +
+                         "Check that 'tailscale serve' is supported on this platform/version.");
         if (OperatingSystem.IsAndroid())
         {
             _log.Info("[Tailscale] Android: Native mesh node handles port exposure internally.");

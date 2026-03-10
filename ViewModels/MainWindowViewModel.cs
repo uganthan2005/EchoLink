@@ -19,12 +19,14 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty] private string _pairingRequestText = "";
 
     private System.Threading.Tasks.TaskCompletionSource<bool>? _pairingTcs;
+    private readonly ClipboardSyncService _clipboardSync = ClipboardSyncService.Instance;
 
     public DashboardViewModel     Dashboard     { get; } = new();
     public FileTransferViewModel  FileTransfer  { get; } = new();
     public ClipboardViewModel     Clipboard     { get; } = new();
     public RemoteControlViewModel RemoteControl { get; } = new();
     public DebugConsoleViewModel  DebugConsole  { get; } = new();
+    public SettingsViewModel      Settings      { get; } = new();
 
     /// <summary>
     /// Raised when logout completes so the hosting window can switch to LoginWindow.
@@ -34,6 +36,8 @@ public partial class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel()
     {
         _currentPage = Dashboard;
+        Settings.SettingsChanged += () => Clipboard.RefreshFromSettings();
+        _clipboardSync.ClipboardReceived += Clipboard.OnRemoteClipboardReceived;
         _ = InitializeSetupAsync();
     }
 
@@ -71,6 +75,8 @@ public partial class MainWindowViewModel : ViewModelBase
             // Prompt user via UI
             return await PromptUserForPairingAsync(hostname);
         });
+
+        await _clipboardSync.StartAsync();
     }
 
     private async System.Threading.Tasks.Task<bool> PromptUserForPairingAsync(string hostname)
@@ -102,6 +108,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand] private void NavigateClipboard()     => Navigate(Clipboard,     "Clipboard Hub");
     [RelayCommand] private void NavigateRemoteControl() => Navigate(RemoteControl, "Remote Control");
     [RelayCommand] private void NavigateDebugConsole()  => Navigate(DebugConsole,  "Debug Console");
+    [RelayCommand] private void NavigateSettings()       => Navigate(Settings,      "Settings");
 
     [RelayCommand]
     private void ToggleSidebar() => IsSidebarOpen = !IsSidebarOpen;
@@ -109,6 +116,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async System.Threading.Tasks.Task LogoutAsync()
     {
+        await _clipboardSync.StopAsync();
         await TailscaleService.Instance.LogoutAsync();
         LoggedOut?.Invoke();
     }

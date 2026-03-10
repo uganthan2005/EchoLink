@@ -2,7 +2,13 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="EchoLink.App"
              xmlns:local="using:EchoLink"
+             xmlns:conv="using:EchoLink.Converters"
              RequestedThemeVariant="Dark">
+
+    <Application.Resources>
+        <conv:BoolToColorConverter x:Key="BoolToColor"
+                                   TrueColor="#00E676" FalseColor="#4A4A4A"/>
+    </Application.Resources>
 
     <Application.DataTemplates>
         <local:ViewLocator/>

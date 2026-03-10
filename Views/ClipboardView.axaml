@@ -15,37 +15,123 @@
         <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,20">
             <TextBlock Text="Clipboard Hub"
                        FontSize="28" FontWeight="Bold" Foreground="#FFFFFF"/>
-            <TextBlock Text="Sync clipboard entries across all mesh devices"
+            <TextBlock Text="Sync clipboard entries across selected mesh devices"
                        FontSize="13" Foreground="#B3B3B3"/>
         </StackPanel>
 
         <!-- Controls card -->
         <Border DockPanel.Dock="Top" Classes="Card" Margin="0,0,0,20">
-            <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto">
                 <!-- Auto-sync toggle -->
-                <StackPanel Grid.Column="0"
+                <StackPanel Grid.Column="0" Grid.Row="0"
                             Orientation="Horizontal" Spacing="12"
                             VerticalAlignment="Center">
                     <ToggleSwitch IsChecked="{Binding IsAutoSyncEnabled}"
-                                  OnContent="Auto-Sync ON"
-                                  OffContent="Auto-Sync OFF"
+                                  OnContent="MirrorClip ON"
+                                  OffContent="MirrorClip OFF"
                                   Foreground="#FFFFFF"/>
                 </StackPanel>
 
                 <!-- Status text -->
-                <TextBlock Grid.Column="1"
+                <TextBlock Grid.Column="1" Grid.Row="0"
                            Text="{Binding StatusText}"
                            FontSize="12" Foreground="#B3B3B3"
                            VerticalAlignment="Center"
                            Margin="0,0,16,0"/>
 
                 <!-- Push button -->
-                <Button Grid.Column="2"
+                <Button Grid.Column="2" Grid.Row="0"
                         Classes="Primary"
-                        Content="Push Current Clipboard"
+                        Content="⚡ SnapShare"
                         Command="{Binding PushClipboardCommand}"
                         VerticalAlignment="Center"/>
+
+                <!-- Feature status badges -->
+                <StackPanel Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="1"
+                            Orientation="Horizontal" Spacing="10" Margin="0,10,0,0">
+                    <Border Background="#1A2A30" CornerRadius="12" Padding="10,4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Ellipse Width="7" Height="7"
+                                     Fill="{Binding IsMirrorClipActive, Converter={StaticResource BoolToColor}}"/>
+                            <TextBlock Text="MirrorClip" FontSize="11" Foreground="#B3B3B3"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Background="#1A2A30" CornerRadius="12" Padding="10,4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Ellipse Width="7" Height="7"
+                                     Fill="{Binding IsGhostPasteActive, Converter={StaticResource BoolToColor}}"/>
+                            <TextBlock Text="GhostPaste" FontSize="11" Foreground="#B3B3B3"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Background="#1A2A30" CornerRadius="12" Padding="10,4">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Ellipse Width="7" Height="7"
+                                     Fill="{Binding IsSnapShareActive, Converter={StaticResource BoolToColor}}"/>
+                            <TextBlock Text="SnapShare" FontSize="11" Foreground="#B3B3B3"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
             </Grid>
+        </Border>
+
+        <!-- Share targets card -->
+        <Border DockPanel.Dock="Top" Classes="Card" Margin="0,0,0,16">
+            <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                    <TextBlock Grid.Column="0"
+                               Text="Clipboard Share Targets"
+                               FontSize="13"
+                               Foreground="#B3B3B3"
+                               VerticalAlignment="Center"/>
+                    <Button Grid.Column="1"
+                            Content="All"
+                            Command="{Binding SelectAllShareDevicesCommand}"
+                            Padding="10,4"
+                            Background="Transparent"
+                            Foreground="#00E5FF"/>
+                    <Button Grid.Column="2"
+                            Content="None"
+                            Command="{Binding SelectNoneShareDevicesCommand}"
+                            Padding="10,4"
+                            Background="Transparent"
+                            Foreground="#FFB74D"/>
+                    <Button Grid.Column="3"
+                            Content="Refresh"
+                            Command="{Binding RefreshShareDevicesCommand}"
+                            Padding="10,4"
+                            Background="Transparent"
+                            Foreground="#3273F6"/>
+                </Grid>
+
+                <TextBlock Text="Only selected devices receive SnapShare and MirrorClip updates."
+                           FontSize="11"
+                           Foreground="#888888"/>
+
+                <ItemsControl ItemsSource="{Binding ShareDevices}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="m:ClipboardShareDevice">
+                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2,0,2">
+                                <CheckBox Grid.Column="0"
+                                          IsChecked="{Binding IsSelected}"
+                                          VerticalAlignment="Center"
+                                          Margin="0,0,8,0"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{Binding Name}" Foreground="#FFFFFF"/>
+                                    <TextBlock Text="{Binding IpAddress}"
+                                               Foreground="#B3B3B3"
+                                               FontSize="11"
+                                               FontFamily="Consolas, monospace"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding OnlineLabel}"
+                                           Foreground="#B3B3B3"
+                                           FontSize="11"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
         </Border>
 
         <!-- Actions row -->

@@ -30,7 +30,15 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnExplicitShutdown;
-            desktop.Exit += (_, _) => TailscaleService.Instance.StopDaemon();
+
+            // Hook cleanup
+            desktop.Exit += async (_, _) =>
+            {
+                await ClipboardSyncService.Instance.StopAsync();
+                TailscaleService.Instance.StopDaemon();
+            };
+
+            // Check auth state asynchronously, then show the right window
             _ = InitializeAppAsync(desktop);
         }
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleView)

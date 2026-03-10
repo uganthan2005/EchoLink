@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:EchoLink.ViewModels"
              xmlns:m="using:EchoLink.Models"
@@ -19,7 +19,7 @@
     <ScrollViewer Padding="32,24">
         <StackPanel Spacing="24">
 
-            <!-- ── Header ─────────────────────────────────────────────── -->
+            <!-- Header -->
             <StackPanel Spacing="6">
                 <TextBlock Text="Network Status"
                            FontSize="28" FontWeight="Bold"
@@ -28,7 +28,7 @@
                            FontSize="13" Foreground="#B3B3B3"/>
             </StackPanel>
 
-            <!-- ── Status Card ────────────────────────────────────────── -->
+            <!-- Status Card -->
             <Border Classes="Card">
                 <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
 
@@ -81,13 +81,13 @@
                                     Padding="10,6"
                                     ToolTip.Tip="Copy IP"
                                     VerticalAlignment="Center"
-                                    Content="⎘"/>
+                                    Content="📋"/>
                         </Grid>
                     </Border>
                 </Grid>
             </Border>
 
-            <!-- ── Connected Devices ──────────────────────────────────── -->
+            <!-- Connected Devices -->
             <StackPanel Spacing="12">
                 <TextBlock Text="Connected Devices"
                            FontSize="16" FontWeight="SemiBold"
@@ -137,13 +137,56 @@
                                     </StackPanel>
 
                                     <!-- Online dot -->
-                                    <StackPanel Grid.Column="2"
-                                                Orientation="Horizontal" Spacing="6"
+                                    <StackPanel Grid.Column="2" 
+                                                Orientation="Horizontal" Spacing="6" 
                                                 VerticalAlignment="Center">
-                                        <Ellipse Width="8" Height="8"
+                                        
+                                        <!-- Paired Status Badge -->
+                                        <Border IsVisible="{Binding IsPaired}"
+                                                Background="#2010B981" 
+                                                CornerRadius="4" 
+                                                Padding="4,2" 
+                                                Margin="0,0,4,0">
+                                            <TextBlock Text="🔒 Paired" 
+                                                       FontSize="10" 
+                                                       FontWeight="SemiBold" 
+                                                       Foreground="#10B981"/>
+                                        </Border>
+                                        
+                                        <Border IsVisible="{Binding !IsPaired}"
+                                                Background="#20EF4444" 
+                                                CornerRadius="4" 
+                                                Padding="4,2" 
+                                                Margin="0,0,4,0">
+                                            <!-- The remote device hasn't paired yet -->
+                                            <TextBlock Text="⚠️ Unpaired" 
+                                                       FontSize="10" 
+                                                       FontWeight="SemiBold" 
+                                                       Foreground="#EF4444"
+                                                       IsVisible="{Binding !IsSelf}"/>
+                                        </Border>
+
+                                        <!-- Manual Request Pair Button -->
+                                        <Button IsVisible="{Binding !IsPaired}"
+                                                IsEnabled="{Binding IsOnline}"
+                                                x:CompileBindings="False"
+                                                Command="{Binding $parent[UserControl].DataContext.PairDeviceCommand}"
+                                                CommandParameter="{Binding}"
+                                                Content="🔗 Pair"
+                                                Padding="8,2"
+                                                Margin="0,0,8,0"
+                                                CornerRadius="4"
+                                                FontSize="10"
+                                                FontWeight="Bold"
+                                                Background="#2000E5FF"
+                                                Foreground="#00E5FF"
+                                                Cursor="Hand"
+                                                ToolTip.Tip="Request Secure SSH Pairing"/>
+
+                                        <Ellipse Width="8" Height="8" 
                                                  Fill="{Binding IsOnline, Converter={StaticResource MeshStatusColor}}"/>
-                                        <TextBlock Text="{Binding StatusLabel}"
-                                                   FontSize="12"
+                                        <TextBlock Text="{Binding StatusLabel}" 
+                                                   FontSize="12" 
                                                    Foreground="{Binding IsOnline, Converter={StaticResource MeshStatusColor}}"/>
                                     </StackPanel>
 
