@@ -74,6 +74,9 @@ public class SettingsData
 
     // ── Hotkeys ──
     public List<HotkeyData> Hotkeys { get; set; } = [];
+
+    // ── Known SSH Pairings ──
+    public Dictionary<string, string> PeerUsernames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public class HotkeyData

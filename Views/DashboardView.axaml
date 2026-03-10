@@ -140,9 +140,32 @@
                                     <StackPanel Grid.Column="2"
                                                 Orientation="Horizontal" Spacing="6"
                                                 VerticalAlignment="Center">
-                                        <Ellipse Width="8" Height="8"
-                                                 Fill="{Binding IsOnline, Converter={StaticResource MeshStatusColor}}"/>
-                                        <TextBlock Text="{Binding StatusLabel}"
+                                        
+                                        <!-- Paired Status Badge -->
+                                        <Border IsVisible="{Binding IsPaired}"
+                                                Background="#2010B981" 
+                                                CornerRadius="4" 
+                                                Padding="4,2" 
+                                                Margin="0,0,4,0">
+                                            <TextBlock Text="ðŸ”’ Paired" 
+                                                       FontSize="10" 
+                                                       FontWeight="SemiBold" 
+                                                       Foreground="#10B981"/>
+                                        </Border>
+                                        
+                                        <Border IsVisible="{Binding !IsPaired}"
+                                                Background="#20EF4444" 
+                                                CornerRadius="4" 
+                                                Padding="4,2" 
+                                                Margin="0,0,4,0">
+                                            <!-- The remote device hasn't paired yet -->
+                                            <TextBlock Text="âš ï¸ Unpaired" 
+                                                       FontSize="10" 
+                                                       FontWeight="SemiBold" 
+                                                       Foreground="#EF4444"
+                                                       IsVisible="{Binding !IsSelf}"/>
+                                        </Border>
+
                                                    FontSize="12"
                                                    Foreground="{Binding IsOnline, Converter={StaticResource MeshStatusColor}}"/>
                                     </StackPanel>

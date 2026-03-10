@@ -139,12 +139,24 @@ namespace EchoLink.Services
                         return;
                     }
 
-                    // Prompt user via ViewModel callback (pass hostname for context)
-                    bool accepted = await onKeyReceivedConfirmation(hostname, publicKey);
+                    // 1. Silent Check: Is this key already trusted?
+                    bool alreadyPaired = await IsKeyAlreadyAuthorizedAsync(publicKey);
+
+                    bool accepted = alreadyPaired;
+
+                    if (!alreadyPaired)
+                    {
+                        // 2. Prompt user via ViewModel callback ONLY if we don't already trust this key
+                        accepted = await onKeyReceivedConfirmation(hostname, publicKey);
+                    }
 
                     if (accepted)
                     {
-                        await AddToAuthorizedKeysAsync(publicKey);
+                        if (!alreadyPaired)
+                        {
+                            await AddToAuthorizedKeysAsync(publicKey);
+                        }
+                        
                         // Reply with our OS username so the sender knows who to SSH as
                         await writer.WriteLineAsync($"ACCEPTED|||{Environment.UserName}");
                     }
@@ -158,6 +170,22 @@ namespace EchoLink.Services
                     LoggingService.Instance.Error($"Key exchange error: {ex.Message}");
                 }
             }
+        }
+
+        public async Task<bool> IsKeyAlreadyAuthorizedAsync(string publicKey)
+        {
+            string authKeysPath = Path.Combine(_sshDir, "authorized_keys");
+            if (!File.Exists(authKeysPath)) return false;
+
+            var lines = await File.ReadAllLinesAsync(authKeysPath);
+            foreach (var line in lines)
+            {
+                if (line.Contains(publicKey))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private async Task<TcpClient?> ConnectViaSocks5Async(string targetIp, int port, CancellationToken ct)

@@ -115,7 +115,15 @@ public partial class FileTransferViewModel : ViewModelBase
             var pairingResult = await pairingService.RequestPairingAsync(SelectedTarget.IpAddress, Environment.MachineName, Environment.UserName);
             
             string targetUsername = pairingResult.TargetUsername ?? "root"; // fallback
-            
+
+            if (pairingResult.Accepted && !string.IsNullOrWhiteSpace(pairingResult.TargetUsername))
+            {
+                // Save it for background services like ClipboardSync that need to SSH silently
+                var settingsData = SettingsService.Instance.Load();
+                settingsData.PeerUsernames[SelectedTarget.IpAddress] = pairingResult.TargetUsername;
+                SettingsService.Instance.Save(settingsData);
+            }
+
             if (!pairingResult.Accepted)
             {
                 _log.Warning("[SFTP] Pairing rejected or timed out. SFTP connection may fail if not already authorized.");

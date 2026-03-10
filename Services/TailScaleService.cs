@@ -501,6 +501,8 @@ public class TailscaleService
             if (string.IsNullOrWhiteSpace(stdout))
                 return (null, devices);
 
+            var settingsData = SettingsService.Instance.Load();
+
             using var doc = JsonDocument.Parse(stdout);
             var root = doc.RootElement;
 
@@ -516,14 +518,14 @@ public class TailscaleService
             if (root.TryGetProperty("Self", out var self))
             {
                 selfIp = ExtractIpv4(self);
-                devices.Add(ParseDevice(self, isSelf: true));
+                devices.Add(ParseDevice(self, isSelf: true, settingsData));
             }
 
             if (root.TryGetProperty("Peer", out var peers) &&
                 peers.ValueKind == JsonValueKind.Object)
             {
                 foreach (var peer in peers.EnumerateObject())
-                    devices.Add(ParseDevice(peer.Value, isSelf: false));
+                    devices.Add(ParseDevice(peer.Value, isSelf: false, settingsData));
             }
         }
         catch (Exception ex)
@@ -546,7 +548,7 @@ public class TailscaleService
         return ips.GetArrayLength() > 0 ? ips[0].GetString() : null;
     }
 
-    private static Models.Device ParseDevice(JsonElement node, bool isSelf)
+    private static Models.Device ParseDevice(JsonElement node, bool isSelf, SettingsData settingsData)
     {
         string hostName = node.TryGetProperty("HostName", out var hn) ? hn.GetString() ?? "" : "";
         string os = node.TryGetProperty("OS", out var osEl) ? osEl.GetString() ?? "" : "";
@@ -565,8 +567,17 @@ public class TailscaleService
         if (node.TryGetProperty("LastSeen", out var ls) && ls.ValueKind == JsonValueKind.String)
         {
             if (DateTime.TryParse(ls.GetString(), out var dt))
+            {
+                // Spoof "Online" status if device was seen in the last hour
+                if (!online && (DateTime.UtcNow - dt).TotalMinutes <= 60)
+                {
+                    online = true;
+                }
                 lastSeen = dt.ToLocalTime().ToString("g");
+            }
         }
+
+        bool isPaired = isSelf || (settingsData.PeerUsernames != null && settingsData.PeerUsernames.ContainsKey(ip));
 
         return new Models.Device
         {
@@ -576,7 +587,8 @@ public class TailscaleService
             DeviceType = deviceType,
             Os = os,
             LastSeen = lastSeen,
-            IsSelf = isSelf
+            IsSelf = isSelf,
+            IsPaired = isPaired
         };
     }
 
@@ -808,9 +820,11 @@ public class TailscaleService
 
     public async Task ExposeLocalPortsAsync(CancellationToken ct = default)
     {
-        _log.Info("[Tailscale] Setting up port forwarding (SSH=22, Pairing+MirrorClip=44444)...");
+        _log.Info("[Tailscale] Setting up port forwarding (SSH=22, Pairing=44444)...");
 
-        foreach (var (port, label) in new (int, string)[] { (22, "SSH"), (44444, "Pairing/MirrorClip") })
+        // We strictly expose port 22 (for all SSH payloads) and Port 44444 (for unauthenticated Key-Pairing).
+        // Clipboard and all future stream services now ride inside the encrypted SSH stream natively!
+        foreach (var (port, label) in new (int, string)[] { (22, "SSH"), (44444, "Pairing") })
         {
             var (stdout, stderr) = await RunCliAsync($"serve --bg --tcp={port} tcp://127.0.0.1:{port}", ct);
             if (!string.IsNullOrWhiteSpace(stdout))

@@ -17,7 +17,7 @@ public class ClipboardSyncService
     private static readonly Lazy<ClipboardSyncService> _instance = new(() => new ClipboardSyncService());
     public static ClipboardSyncService Instance => _instance.Value;
 
-    private const int ClipboardSyncPort = 44444;
+    private const int ClipboardSyncPort = 44555; // Strictly internal loopback port for SSH Tunnel
 
     private readonly LoggingService _log = LoggingService.Instance;
     private readonly SettingsService _settings = SettingsService.Instance;
@@ -282,10 +282,12 @@ public class ClipboardSyncService
 
     private async Task RunListenerAsync(CancellationToken ct)
     {
-        _log.Info($"MirrorClip listener starting on port {ClipboardSyncPort}...");
-        var listener = new TcpListener(IPAddress.Any, ClipboardSyncPort);
+        _log.Info($"MirrorClip listener starting on internal port {ClipboardSyncPort}...");
+        // Critical Security Update: Bind ONLY to `IPAddress.Loopback` (127.0.0.1)
+        // Data can only reach here via an authenticated SSH Tunnel (Local Port Forwarding)
+        var listener = new TcpListener(IPAddress.Loopback, ClipboardSyncPort);
         listener.Start();
-        _log.Info($"MirrorClip listener bound to 0.0.0.0:{ClipboardSyncPort}");
+        _log.Info($"MirrorClip listener bound to 127.0.0.1:{ClipboardSyncPort} (SSH Tunnel target)");
         ct.Register(() => listener.Stop());
 
         try
@@ -450,11 +452,25 @@ public class ClipboardSyncService
 
     private async Task<bool> SendClipToPeerAsync(string targetIp, ClipboardSyncMessage message, CancellationToken ct)
     {
-        using var client = await ConnectToPeerAsync(targetIp, ClipboardSyncPort, ct);
-        if (client is null || !client.Connected)
-            throw new InvalidOperationException($"Could not connect to {targetIp}:{ClipboardSyncPort}");
+        // 1. We must have their SSH username saved from a previous Pairing via File Transfer.
+        //    Otherwise, we do not know who to log in as silently. 
+        var settings = _settings.Load();
+        if (!settings.PeerUsernames.TryGetValue(targetIp, out string? targetUsername) || string.IsNullOrWhiteSpace(targetUsername))
+        {
+            _log.Debug($"MirrorClip Cannot SSH to {targetIp} because their Username pattern is unknown. Pair them once in File Transfer.");
+            return false;
+        }
 
-        using var stream = client.GetStream();
+        string privateKeyPath = new SshPairingService(TailscaleService.Instance).PrivateKeyPath;
+
+        // 2. We use the Universal SSH Tunnel to pipe to their local-only 44555 listener.
+        using var stream = await SshTunnelService.Instance.CreateTunneledStreamAsync(
+            targetIp, 
+            targetUsername, 
+            privateKeyPath, 
+            ClipboardSyncPort, 
+            ct);
+
         using var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
         using var reader = new StreamReader(stream, Encoding.UTF8);
 
@@ -462,7 +478,7 @@ public class ClipboardSyncService
         await writer.WriteLineAsync(json);
 
         using var ackTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        ackTimeout.CancelAfter(TimeSpan.FromSeconds(3));
+        ackTimeout.CancelAfter(TimeSpan.FromSeconds(5));
 
         string? ackLine;
         try
@@ -618,15 +634,7 @@ public class ClipboardSyncService
     }
 
     /// <summary>
-    /// Tries SOCKS5 proxy first (for userspace networking).
-    ///
-    /// MirrorClip follows the same transport model as SSH/SFTP in this app, which
-    /// consistently tunnels through tailscaled SOCKS5 when userspace networking is enabled.
-    /// </summary>
-    private async Task<TcpClient?> ConnectToPeerAsync(string targetIp, int port, CancellationToken ct)
-    {
-        return await ConnectViaSocks5Async(targetIp, port, ct);
-    }
+
 
     private static IEnumerable<Device> GetEligibleClipboardPeers(
         IEnumerable<Device> devices,
@@ -652,60 +660,6 @@ public class ClipboardSyncService
         }
     }
 
-    private async Task<TcpClient?> ConnectViaSocks5Async(string targetIp, int port, CancellationToken ct)
-    {
-        var client = new TcpClient();
-        try
-        {
-            // Step 1: Connect to SOCKS5 proxy
-            using var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            connectTimeout.CancelAfter(TimeSpan.FromSeconds(3));
-            await client.ConnectAsync("127.0.0.1", 1055, connectTimeout.Token);
-            var stream = client.GetStream();
 
-            // Step 2: SOCKS5 handshake
-            await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, ct);
-            byte[] response1 = new byte[2];
-            int read = await stream.ReadAsync(response1, ct);
-            if (read != 2 || response1[1] != 0x00)
-            {
-                _log.Debug($"MirrorClip SOCKS5: handshake failed (read={read}, method={response1[1]})");
-                client.Dispose();
-                return null;
-            }
-
-            // Step 3: SOCKS5 connect request
-            byte[] destIpBytes = IPAddress.Parse(targetIp).GetAddressBytes();
-            byte[] portBytes = BitConverter.GetBytes((short)port);
-            if (BitConverter.IsLittleEndian) Array.Reverse(portBytes);
-
-            byte[] request = new byte[6 + destIpBytes.Length];
-            request[0] = 0x05;
-            request[1] = 0x01;
-            request[2] = 0x00;
-            request[3] = destIpBytes.Length == 16 ? (byte)0x04 : (byte)0x01;
-            destIpBytes.CopyTo(request, 4);
-            portBytes.CopyTo(request, 4 + destIpBytes.Length);
-
-            await stream.WriteAsync(request, ct);
-
-            byte[] response2 = new byte[32];
-            read = await stream.ReadAsync(response2, ct);
-            if (read < 2 || response2[1] != 0x00)
-            {
-                _log.Debug($"MirrorClip SOCKS5: connect to {targetIp}:{port} rejected (read={read}, reply=0x{response2[1]:X2})");
-                client.Dispose();
-                return null;
-            }
-
-            _log.Debug($"MirrorClip SOCKS5: connected to {targetIp}:{port}");
-            return client;
-        }
-        catch (Exception ex)
-        {
-            _log.Debug($"MirrorClip SOCKS5: exception connecting to {targetIp}:{port}: {ex.Message}");
-            client.Dispose();
-            return null;
-        }
-    }
 }
+
