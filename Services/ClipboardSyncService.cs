@@ -381,9 +381,9 @@ public class ClipboardSyncService
 
     private async Task<bool> SendClipToPeerAsync(string targetIp, ClipboardSyncMessage message, CancellationToken ct)
     {
-        using var client = await ConnectViaSocks5Async(targetIp, ClipboardSyncPort, ct);
+        using var client = await ConnectToPeerAsync(targetIp, ClipboardSyncPort, ct);
         if (client is null || !client.Connected)
-            throw new InvalidOperationException("Could not connect via SOCKS5.");
+            throw new InvalidOperationException($"Could not connect to {targetIp}:{ClipboardSyncPort}");
 
         using var stream = client.GetStream();
         using var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
@@ -402,6 +402,7 @@ public class ClipboardSyncService
         }
         catch (OperationCanceledException)
         {
+            _log.Debug($"MirrorClip: ACK timeout from {targetIp}");
             return false;
         }
 
@@ -525,20 +526,58 @@ public class ClipboardSyncService
         }
     }
 
-    private static async Task<TcpClient?> ConnectViaSocks5Async(string targetIp, int port, CancellationToken ct)
+    /// <summary>
+    /// Tries SOCKS5 proxy first (for userspace networking), then falls back to direct TCP.
+    /// </summary>
+    private async Task<TcpClient?> ConnectToPeerAsync(string targetIp, int port, CancellationToken ct)
+    {
+        // Try SOCKS5 first
+        var socks = await ConnectViaSocks5Async(targetIp, port, ct);
+        if (socks is not null)
+            return socks;
+
+        // Fallback: direct TCP (works if Tailscale kernel networking or same LAN)
+        _log.Debug($"MirrorClip: SOCKS5 failed for {targetIp}:{port}, trying direct TCP...");
+        var direct = new TcpClient();
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(4));
+            await direct.ConnectAsync(targetIp, port, timeout.Token);
+            _log.Info($"MirrorClip: direct TCP connection to {targetIp}:{port} succeeded.");
+            return direct;
+        }
+        catch (Exception ex)
+        {
+            _log.Warning($"MirrorClip: direct TCP to {targetIp}:{port} also failed: {ex.Message}");
+            direct.Dispose();
+            return null;
+        }
+    }
+
+    private async Task<TcpClient?> ConnectViaSocks5Async(string targetIp, int port, CancellationToken ct)
     {
         var client = new TcpClient();
         try
         {
-            await client.ConnectAsync("127.0.0.1", 1055, ct);
+            // Step 1: Connect to SOCKS5 proxy
+            using var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            connectTimeout.CancelAfter(TimeSpan.FromSeconds(3));
+            await client.ConnectAsync("127.0.0.1", 1055, connectTimeout.Token);
             var stream = client.GetStream();
 
+            // Step 2: SOCKS5 handshake
             await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, ct);
             byte[] response1 = new byte[2];
             int read = await stream.ReadAsync(response1, ct);
             if (read != 2 || response1[1] != 0x00)
+            {
+                _log.Debug($"MirrorClip SOCKS5: handshake failed (read={read}, method={response1[1]})");
+                client.Dispose();
                 return null;
+            }
 
+            // Step 3: SOCKS5 connect request
             byte[] destIpBytes = IPAddress.Parse(targetIp).GetAddressBytes();
             byte[] portBytes = BitConverter.GetBytes((short)port);
             if (BitConverter.IsLittleEndian) Array.Reverse(portBytes);
@@ -556,12 +595,18 @@ public class ClipboardSyncService
             byte[] response2 = new byte[32];
             read = await stream.ReadAsync(response2, ct);
             if (read < 2 || response2[1] != 0x00)
+            {
+                _log.Debug($"MirrorClip SOCKS5: connect to {targetIp}:{port} rejected (read={read}, reply=0x{response2[1]:X2})");
+                client.Dispose();
                 return null;
+            }
 
+            _log.Debug($"MirrorClip SOCKS5: connected to {targetIp}:{port}");
             return client;
         }
-        catch
+        catch (Exception ex)
         {
+            _log.Debug($"MirrorClip SOCKS5: exception connecting to {targetIp}:{port}: {ex.Message}");
             client.Dispose();
             return null;
         }
