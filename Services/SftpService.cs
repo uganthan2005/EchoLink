@@ -55,17 +55,32 @@ public class SftpService
                 string resolvedRemotePath = remotePath;
                 if (!remotePath.StartsWith("/") && !remotePath.Contains(":/"))
                 {
-                    // For cross-platform support without path corruption
                     string currentDir = client.WorkingDirectory;
-                    if (currentDir == "/") 
+                    _log.Info($"[SFTP] Current remote working directory: {currentDir}");
+
+                    // Determine a sensible base directory
+                    string baseDir = currentDir;
+                    if (currentDir == "/")
                     {
-                        // Some Windows OpenSSH configs drop us into / mapping to C:\
-                        resolvedRemotePath = $"/C:/Users/{username}/Downloads/{remotePath}";
+                        // This often happens on Windows OpenSSH SFTP
+                        baseDir = $"/C:/Users/{username}";
                     }
-                    else
+
+                    // Try to use a 'Downloads' folder if it exists, otherwise home
+                    string downloadsDir = $"{baseDir.TrimEnd('/')}/Downloads";
+                    try 
                     {
-                        // In Windows OpenSSH, the home dir usually starts at /C:/Users/User
-                        resolvedRemotePath = $"{currentDir}/Downloads/{remotePath}";
+                        if (!client.Exists(downloadsDir))
+                        {
+                            _log.Info($"[SFTP] Remote Downloads folder not found at {downloadsDir}, creating it...");
+                            client.CreateDirectory(downloadsDir);
+                        }
+                        resolvedRemotePath = $"{downloadsDir}/{remotePath}";
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Warning($"[SFTP] Could not use or create Downloads folder ({ex.Message}). Using home directory.");
+                        resolvedRemotePath = $"{baseDir.TrimEnd('/')}/{remotePath}";
                     }
                 }
 

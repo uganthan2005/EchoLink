@@ -45,6 +45,10 @@ namespace EchoLink.Services
                 Process.Start(new ProcessStartInfo("icacls", $"\"{_sshDir}\" /grant SYSTEM:(F) /q") { CreateNoWindow = true })?.WaitForExit();
                 Process.Start(new ProcessStartInfo("icacls", $"\"{_sshDir}\" /grant \"{Environment.UserName}:(F)\" /q") { CreateNoWindow = true })?.WaitForExit();
             }
+            else if (OperatingSystem.IsLinux())
+            {
+                Process.Start(new ProcessStartInfo("chmod", $"700 \"{_sshDir}\"") { CreateNoWindow = true })?.WaitForExit();
+            }
 
             if (!File.Exists(PrivateKeyPath) || !File.Exists(PublicKeyPath))
             {

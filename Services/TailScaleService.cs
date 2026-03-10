@@ -764,12 +764,10 @@ public class TailscaleService
 
         public async Task ExposeLocalPortsAsync(CancellationToken ct = default)
     {
-        if (OperatingSystem.IsWindows())
-        {
-            _log.Info("[Tailscale] Setting up userspace port forwarding for SSH and Pairing...");
-            await RunCliAsync("serve --bg --tcp 22 tcp://127.0.0.1:22", ct);
-            await RunCliAsync("serve --bg --tcp 44444 tcp://127.0.0.1:44444", ct);
-        }
+        _log.Info($"[Tailscale] Setting up userspace port forwarding for SSH and Pairing on { (OperatingSystem.IsWindows() ? "Windows" : "Linux") }...");
+        // This works for both Windows and Linux when running in userspace-networking mode
+        await RunCliAsync("serve --bg --tcp 22 tcp://127.0.0.1:22", ct);
+        await RunCliAsync("serve --bg --tcp 44444 tcp://127.0.0.1:44444", ct);
     }
 
     public async Task LogoutAsync(CancellationToken ct = default)
