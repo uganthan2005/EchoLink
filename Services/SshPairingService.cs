@@ -295,22 +295,6 @@ namespace EchoLink.Services
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 
-                // 0. QUICK CHECK: Is OpenSSH running on the target? If not, bail before even attempting pairing
-                try 
-                {
-                    using var sshCheckClient = await ConnectViaSocks5Async(targetIp, 2222, cts.Token);
-                    if (sshCheckClient == null || !sshCheckClient.Connected)
-                    {
-                        LoggingService.Instance.Error($"OpenSSH daemon on target {targetIp} is not running or accessible. Cannot pair.");
-                        return (false, null);
-                    }
-                }
-                catch
-                {
-                    LoggingService.Instance.Error($"OpenSSH daemon on target {targetIp} is not running or accessible. Cannot pair.");
-                    return (false, null);
-                }
-
                 // Route through SOCKS5 proxy since we are running userspace tailscale
                 using var client = await ConnectViaSocks5Async(targetIp, KeyExchangePort, cts.Token);
                 

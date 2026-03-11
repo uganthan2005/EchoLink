@@ -16,12 +16,20 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/armon/go-socks5"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/net/netmon"
 	"tailscale.com/tsnet"
 )
+
+// REAL Tailscale flags to bypass Android 11+ SELinux Netlink restrictions.
+func init() {
+	os.Setenv("TS_DISABLE_LINUX_ROUTING", "true")
+	os.Setenv("TS_ANDROID_ALLOW_UNCONFIGURED_ROUTING", "true")
+	os.Setenv("TS_DEBUG_NETSTACK", "true")
+}
 
 var (
 	tsServer      *tsnet.Server
@@ -59,11 +67,9 @@ func StartEchoLinkNode(configDir *C.char, authKey *C.char, hostname *C.char, loc
 	netmon.RegisterInterfaceGetter(func() ([]netmon.Interface, error) {
 		var addrs []net.Addr
 
-		// If C# successfully passed us a local IP, format it for Tailscale
 		if ipStr != "" && ipStr != "127.0.0.1" {
 			parsedIp := net.ParseIP(ipStr)
 			if parsedIp != nil {
-				// We attach a standard /24 subnet mask to the IP
 				addrs = append(addrs, &net.IPNet{IP: parsedIp, Mask: net.CIDRMask(24, 32)})
 			}
 		}
@@ -71,26 +77,24 @@ func StartEchoLinkNode(configDir *C.char, authKey *C.char, hostname *C.char, loc
 		return []netmon.Interface{
 			{
 				Interface: &net.Interface{Index: 1, Name: "csharp-bridge", Flags: net.FlagUp},
-				AltAddrs:  addrs, // Tailscale now knows exactly where it is on the LAN!
+				AltAddrs:  addrs,
 			},
 		}, nil
 	})
 
-	// FIX: Android has no concept of a "UserConfigDir" where Tailscale can safely drop
-	// its logtail state file. If we don't explicitly tell it where to put it, or disable it,
-	// the Go process hard crashes with "panic: no safe place found to store log state".
-	os.Setenv("TS_LOG_TARGET", "discard")   // Stop trying to upload logs to tailscale.com
-	os.Setenv("TS_LOGTAIL_STATE_DIR", conf) // Even if it tries, force it to use our Android app directory
+	os.Setenv("TS_LOG_TARGET", "discard")
+	os.Setenv("TS_LOGTAIL_STATE_DIR", conf)
+	os.Setenv("HOME", conf)
+	os.Setenv("XDG_CACHE_HOME", conf)
 
 	tsServer = &tsnet.Server{
 		Dir:        conf,
 		Hostname:   host,
 		AuthKey:    key,
-		ControlURL: "https://echo-link.app", 
+		ControlURL: "https://echo-link.app",
 		Ephemeral:  false,
 		Logf: func(format string, args ...any) {
 			msg := fmt.Sprintf(format, args...)
-			// Catch auth URLs in the logs just in case LocalClient misses it
 			if strings.Contains(msg, "https://") {
 				idx := strings.Index(msg, "https://")
 				lastAuthUrl = msg[idx:]
@@ -98,23 +102,16 @@ func StartEchoLinkNode(configDir *C.char, authKey *C.char, hostname *C.char, loc
 			}
 			log.Printf("[tsnet] %s", msg)
 		},
-		UserLogf: func(format string, args ...any) {
-			log.Printf("[tsnet-user] "+format, args...)
-		},
 	}
 
-	// Disable Logtail completely to stop the "no safe place found to store log state" panic
-	os.Setenv("TS_LOG_TARGET", "discard")
-
-	// If it still panics looking for a directory, we can trick the environment
-	os.Setenv("HOME", conf)
-	os.Setenv("XDG_CACHE_HOME", conf)
 	go func() {
-		// Up() is preferred for tsnet to ensure initialization
 		_, err := tsServer.Up(context.Background())
 		if err == nil {
-			startSftpServer()
-			startPairingForwarder() // Open port 44444 to the mesh!
+			// THE SMOKING GUN FIX: All services MUST run concurrently!
+			go startSftpServer()
+			go startPairingForwarder()
+			go startSocks5Proxy()
+
 			internalState = "Running"
 		} else {
 			log.Printf("[Go] tsServer.Up error: %v", err)
@@ -131,15 +128,26 @@ func GetLastErrorMsg() *C.char {
 	return C.CString(lastErrorMsg)
 }
 
-func startPairingForwarder() {
-	mu.Lock()
-	if tsServer == nil {
-		mu.Unlock()
+func startSocks5Proxy() {
+	conf := &socks5.Config{
+		Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return tsServer.Dial(ctx, network, addr)
+		},
+	}
+
+	server, err := socks5.New(conf)
+	if err != nil {
+		log.Printf("[Go] Failed to initialize SOCKS5 proxy: %v", err)
 		return
 	}
-	mu.Unlock()
 
-	// Listen on the Tailscale network IP for port 44444
+	log.Println("[Go] SOCKS5 proxy running on 127.0.0.1:1055 (C# -> Mesh bridge)")
+	if err := server.ListenAndServe("tcp", "127.0.0.1:1055"); err != nil {
+		log.Printf("[Go] SOCKS5 proxy crashed: %v", err)
+	}
+}
+
+func startPairingForwarder() {
 	ln, err := tsServer.Listen("tcp", ":44444")
 	if err != nil {
 		log.Printf("[Go] Failed to listen on mesh port 44444: %v", err)
@@ -148,32 +156,29 @@ func startPairingForwarder() {
 
 	log.Printf("[Go] Pairing Forwarder listening on mesh port 44444, routing to 127.0.0.1:44444")
 
-	go func() {
-		for {
-			meshConn, err := ln.Accept()
+	for {
+		meshConn, err := ln.Accept()
+		if err != nil {
+			log.Printf("[Go] Pairing forwarder accept error: %v", err)
+			return
+		}
+
+		go func(c net.Conn) {
+			defer c.Close()
+			log.Printf("[Go] Received pairing connection from mesh: %s", c.RemoteAddr().String())
+
+			localConn, err := net.Dial("tcp", "127.0.0.1:44444")
 			if err != nil {
+				log.Printf("[Go] Failed to dial local C# pairing service: %v", err)
 				return
 			}
-			
-			go func(c net.Conn) {
-				defer c.Close()
-				// Forward to the C# TcpListener running on localhost
-				localConn, err := net.Dial("tcp", "127.0.0.1:44444")
-				if err != nil {
-					log.Printf("[Go] Failed to dial local C# pairing service: %v", err)
-					return
-				}
-				defer localConn.Close()
+			defer localConn.Close()
 
-				// Bidirectional copy
-				go io.Copy(c, localConn)
-				io.Copy(localConn, c)
-			}(meshConn)
-		}
-	}()
+			go io.Copy(c, localConn)
+			io.Copy(localConn, c)
+		}(meshConn)
+	}
 }
-
-// ... (keep startSftpServer and handleSshConn the same) ...
 
 func startSftpServer() {
 	mu.Lock()
@@ -289,7 +294,6 @@ func GetBackendState() *C.char {
 
 	status, err := getStatus()
 	if err != nil {
-		// Fallback to our internal tracker if LocalClient fails
 		return C.CString(internalState)
 	}
 
