@@ -417,12 +417,21 @@ public class TailscaleService
             try
             {
                 var json = NativeBridge?.GetPeerListJson();
+                var settingsData = SettingsService.Instance.Load(); // FIX: Load settings on Android
+                
                 if (!string.IsNullOrEmpty(json))
                 {
                     var peerDevices = JsonSerializer.Deserialize<System.Collections.Generic.List<Models.Device>>(json, 
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                     if (peerDevices != null)
-                        androidDevices.AddRange(peerDevices);
+                    {
+                        foreach (var peer in peerDevices)
+                        {
+                            // FIX: Determine IsPaired status based on saved settings
+                            peer.IsPaired = settingsData.PeerUsernames.ContainsKey(peer.IpAddress);
+                            androidDevices.Add(peer);
+                        }
+                    }
                 }
             }
             catch (Exception ex)

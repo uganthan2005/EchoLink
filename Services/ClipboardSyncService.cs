@@ -56,9 +56,9 @@ public class ClipboardSyncService
 
         // Only log on the first failure and every 5 attempts after that
         if (fails == 1 || fails % 5 == 0)
-            _log.Warning($"MirrorClip: cannot reach {peerIp}:2222 (SSH) or 44444 (Pairing) (attempt {fails}). " +
+            _log.Warning($"MirrorClip: cannot reach {peerIp} SSH or 44444 (Pairing) (attempt {fails}). " +
                          $"Retrying in {seconds}s. Ensure EchoLink is running there and 'tailscale serve' " +
-                         $"exposed ports 2222 and 44444 on that device.");
+                         $"exposed SSH and 44444 on that device.");
     }
 
     private void RecordPeerSuccess(string peerIp)
@@ -463,14 +463,18 @@ public class ClipboardSyncService
 
         string privateKeyPath = new SshPairingService(TailscaleService.Instance).PrivateKeyPath;
 
+        var (_, devices) = await TailscaleService.Instance.GetNetworkStatusAsync(ct);
+        var targetDevice = devices?.FirstOrDefault(d => d.IpAddress == targetIp);
+        int sshPort = targetDevice?.Os?.Equals("android", StringComparison.OrdinalIgnoreCase) == true ? 22 : 2222;
+
         // 2. We use the Universal SSH Tunnel to pipe to their local-only 44555 listener.
         using var stream = await SshTunnelService.Instance.CreateTunneledStreamAsync(
-            targetIp, 
-            targetUsername, 
-            privateKeyPath, 
-            ClipboardSyncPort, 
+            targetIp,
+            targetUsername,
+            privateKeyPath,
+            ClipboardSyncPort,
+            sshPort,
             ct);
-
         using var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
         using var reader = new StreamReader(stream, Encoding.UTF8);
 

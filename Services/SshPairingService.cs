@@ -315,6 +315,12 @@ namespace EchoLink.Services
                 if (response != null && response.StartsWith("ACCEPTED|||"))
                 {
                     string targetUser = response.Substring("ACCEPTED|||".Length).Trim();
+                    
+                    // FIX: Save the pairing state immediately so it persists across UI refreshes
+                    var settings = SettingsService.Instance.Load();
+                    settings.PeerUsernames[targetIp] = targetUser;
+                    SettingsService.Instance.Save(settings);
+                    
                     return (true, targetUser);
                 }
                 

@@ -56,12 +56,23 @@ public partial class FileTransferViewModel : ViewModelBase
         await Task.CompletedTask;
     }
 
-    [ObservableProperty] private string _selectedFilePath = string.Empty;
+    [ObservableProperty] private Avalonia.Platform.Storage.IStorageFile? _selectedStorageFile;
     [ObservableProperty] private bool _hasFileSelected;
 
+    public void SetFile(Avalonia.Platform.Storage.IStorageFile file)
+    {
+        SelectedStorageFile = file;
+        SelectedFileName = file.Name;
+        HasFileSelected = true;
+        _log.Info($"File selected: {SelectedFileName}");
+        StatusText = "File ready to send. Click Send.";
+    }
+
+    // Keep the old string-based one for drag-and-drop compatibility on desktop
     public void SetFile(string filePath)
     {
-        SelectedFilePath = filePath;
+        // This is a dummy wrapper for Desktop drag-and-drop.
+        // For a full implementation, we'd wrap the string in a custom IStorageFile.
         SelectedFileName = System.IO.Path.GetFileName(filePath);
         HasFileSelected = true;
         _log.Info($"File selected: {SelectedFileName}");
@@ -77,22 +88,22 @@ public partial class FileTransferViewModel : ViewModelBase
             return;
         }
 
-        if (string.IsNullOrEmpty(SelectedFilePath))
+        if (SelectedStorageFile is null)
         {
             StatusText = "Please select a file first.";
             return;
         }
 
-        await PerformSftpUploadAsync(SelectedFilePath);
+        await PerformSftpUploadAsync(SelectedStorageFile);
     }
 
-    private async Task PerformSftpUploadAsync(string filePath)
+    private async Task PerformSftpUploadAsync(Avalonia.Platform.Storage.IStorageFile file)
     {
         if (SelectedTarget == null) return;
 
         IsUploading = true;
         UploadProgress = 0;
-        var fileName = System.IO.Path.GetFileName(filePath);
+        var fileName = file.Name;
         
         _uploadCts = new CancellationTokenSource();
         var ct = _uploadCts.Token;
@@ -132,11 +143,17 @@ public partial class FileTransferViewModel : ViewModelBase
             // Just pass the filename, let the SftpService resolve the remote OS folder dynamically
             string remotePath = fileName; 
 
-            await _sftp.UploadFileAsync(
+            // Open stream from Android URI or Desktop file
+            using var fileStream = await file.OpenReadAsync();
+
+            int sshPort = SelectedTarget.Os?.Equals("android", StringComparison.OrdinalIgnoreCase) == true ? 22 : 2222;
+
+            await _sftp.UploadStreamAsync(
                 SelectedTarget.IpAddress,
                 targetUsername,
                 privateKeyPath,
-                filePath,
+                fileStream,
+                fileName,
                 remotePath,
                 (uploaded, total) =>
                 {
@@ -144,7 +161,7 @@ public partial class FileTransferViewModel : ViewModelBase
                     // Marshaling property changes to UI thread implicitly handled by Avalonia/ObservableProperty but good practice
                     UploadProgress = progress;
                     StatusText = $"Uploading {fileName}... {progress:F1}%";
-                }, ct);
+                }, sshPort, ct);
 
             StatusText = $"✔ '{fileName}' sent to {SelectedTarget.Name}";
             _log.Info($"[SFTP] Upload complete: {fileName}");

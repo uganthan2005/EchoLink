@@ -39,9 +39,8 @@ public partial class FileTransferView : UserControl
 
         if (files.Count > 0)
         {
-            var path = files[0].TryGetLocalPath();
-            if (path is not null)
-                vm.SetFile(path);
+            // Pass the IStorageFile directly to handle Android's content:// URIs
+            vm.SetFile(files[0]);
         }
     }
 

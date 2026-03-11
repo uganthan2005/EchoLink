@@ -7,7 +7,11 @@ package main
 import "C"
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
@@ -23,7 +27,6 @@ import (
 	"tailscale.com/net/netmon"
 	"tailscale.com/tsnet"
 )
-
 // REAL Tailscale flags to bypass Android 11+ SELinux Netlink restrictions.
 func init() {
 	os.Setenv("TS_DISABLE_LINUX_ROUTING", "true")
@@ -199,6 +202,34 @@ func startSftpServer() {
 		NoClientAuth: true,
 	}
 
+	// Load or generate a host key (REQUIRED for the SSH server to actually accept connections)
+	keyPath := tsServer.Dir + "/ssh_host_ed25519_key"
+	privateBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		log.Printf("[Go] Generating new host key at %s", keyPath)
+		// We use a dummy ed25519 key for the ephemeral server, or generate a real one.
+		// For simplicity in a c-shared lib without external keygen tools, we can generate a small RSA key
+		// or just use a statically compiled one for the internal tunnel since Tailscale provides the real security.
+		
+		// To keep it simple and robust, let's use a quick RSA generation
+		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err == nil {
+			privateBytes = pem.EncodeToMemory(&pem.Block{
+				Type:  "RSA PRIVATE KEY",
+				Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+			})
+			os.WriteFile(keyPath, privateBytes, 0600)
+		}
+	}
+
+	private, err := ssh.ParsePrivateKey(privateBytes)
+	if err == nil {
+		config.AddHostKey(private)
+		log.Printf("[Go] Host key loaded successfully.")
+	} else {
+		log.Printf("[Go] CRITICAL: Failed to parse host key: %v. SSH will reject all connections!", err)
+	}
+
 	log.Printf("[Go] SFTP Server listening on :2222")
 
 	for {
@@ -228,9 +259,14 @@ func handleSshConn(nConn net.Conn, config *ssh.ServerConfig) {
 			for req := range in {
 				if req.Type == "subsystem" && string(req.Payload[4:]) == "sftp" {
 					req.Reply(true, nil)
-					server := sftp.NewRequestServer(channel, sftp.InMemHandler())
-					if err := server.Serve(); err != nil && err != io.EOF {
-						log.Print("[Go] SFTP error:", err)
+					// Use a real file-system backed server instead of InMemHandler
+					server, err := sftp.NewServer(channel)
+					if err == nil {
+						if err := server.Serve(); err != nil && err != io.EOF {
+							log.Print("[Go] SFTP error:", err)
+						}
+					} else {
+						log.Print("[Go] Failed to init SFTP server:", err)
 					}
 					return
 				}

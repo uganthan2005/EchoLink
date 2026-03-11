@@ -12,22 +12,15 @@ public class SftpService
     private readonly LoggingService _log = LoggingService.Instance;
     private const int Socks5Port = 1055;
 
-    /// <summary>
-    /// Uploads a file to a remote Tailscale node via SFTP, tunneling through our SOCKS5 proxy.
-    /// </summary>
-    /// <param name="host">The Tailscale IP of the recipient.</param>
-    /// <param name="username">The username on the target machine.</param>
-    /// <param name="password">The password (or we could extend this for key-based auth).</param>
-    /// <param name="localPath">Path to the file on this machine.</param>
-    /// <param name="remotePath">Full destination path on the remote machine.</param>
-    /// <param name="progressCallback">Callback for (bytesUploaded, totalBytes).</param>
-    public async Task UploadFileAsync(
+    public async Task UploadStreamAsync(
         string host, 
         string username, 
         string privateKeyPath,
-        string localPath,
+        Stream fileStream,
+        string fileName,
         string remotePath,
         Action<long, long> progressCallback,
+        int sshPort = 22,
         CancellationToken ct = default)
     {
         await Task.Run(() =>
@@ -36,7 +29,7 @@ public class SftpService
             // Configure connection to go through the Tailscale SOCKS5 proxy    
             var connectionInfo = new ConnectionInfo(
                 host,
-                2222,
+                sshPort,
                 username,
                 ProxyTypes.Socks5,
                 "127.0.0.1",
@@ -61,6 +54,103 @@ public class SftpService
                     {
                         // Some Windows OpenSSH configs drop us into / mapping to C:\
                         resolvedRemotePath = $"/C:/Users/{username}/Downloads/{remotePath}";
+                    }
+                    else if (currentDir.StartsWith("/"))
+                    {
+                        // Linux or Android Go SFTP server
+                        // On Android, currentDir is usually /data/user/0/com.echolink.app/files/tailscale
+                        // We can just dump it in the working directory because it's guaranteed to be writable
+                        resolvedRemotePath = $"{currentDir}/{remotePath}";
+                    }
+                    else
+                    {
+                        // In Windows OpenSSH, the home dir usually starts at /C:/Users/User
+                        resolvedRemotePath = $"{currentDir}/Downloads/{remotePath}";
+                    }
+                }
+
+                long totalBytes = fileStream.Length;
+
+                _log.Info($"[SFTP] Starting stream upload to {resolvedRemotePath}: {fileName} ({totalBytes} bytes)");
+
+                client.UploadFile(fileStream, resolvedRemotePath, (uploaded) =>
+                {
+                    ct.ThrowIfCancellationRequested(); // Automatically abort if cancel button clicked
+                    progressCallback(checked((long)uploaded), totalBytes);
+                });
+
+                _log.Info("[SFTP] Upload completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"[SFTP] Upload failed: {ex.Message}");
+                throw;
+            }
+            finally
+            {
+                if (client.IsConnected)
+                    client.Disconnect();
+            }
+        }, ct);
+    }
+
+    /// <summary>
+    /// Uploads a file to a remote Tailscale node via SFTP, tunneling through our SOCKS5 proxy.
+    /// </summary>
+    /// <param name="host">The Tailscale IP of the recipient.</param>
+    /// <param name="username">The username on the target machine.</param>
+    /// <param name="password">The password (or we could extend this for key-based auth).</param>
+    /// <param name="localPath">Path to the file on this machine.</param>
+    /// <param name="remotePath">Full destination path on the remote machine.</param>
+    /// <param name="progressCallback">Callback for (bytesUploaded, totalBytes).</param>
+    public async Task UploadFileAsync(
+        string host, 
+        string username, 
+        string privateKeyPath,
+        string localPath,
+        string remotePath,
+        Action<long, long> progressCallback,
+        int sshPort = 22,
+        CancellationToken ct = default)
+    {
+        await Task.Run(() =>
+        {
+            var privateKeyFile = new PrivateKeyFile(privateKeyPath);
+            // Configure connection to go through the Tailscale SOCKS5 proxy    
+            var connectionInfo = new ConnectionInfo(
+                host,
+                sshPort,
+                username,
+                ProxyTypes.Socks5,
+                "127.0.0.1",
+                Socks5Port,
+                "",
+                "",
+                new PrivateKeyAuthenticationMethod(username, privateKeyFile));
+            
+            using var client = new SftpClient(connectionInfo);
+            try
+            {
+                _log.Info($"[SFTP] Connecting to {host} via SOCKS5 proxy...");
+                client.Connect();
+
+                // Compute the absolute remote path
+                string resolvedRemotePath = remotePath;
+                if (!remotePath.StartsWith("/") && !remotePath.Contains(":/"))
+                {
+                    // For cross-platform support without path corruption
+                    string currentDir = client.WorkingDirectory;
+                    if (currentDir == "/") 
+                    {
+                        // Some Windows OpenSSH configs drop us into / mapping to C:\
+                        resolvedRemotePath = $"/C:/Users/{username}/Downloads/{remotePath}";
+                    }
+                    else if (currentDir.StartsWith("/"))
+                    {
+                        // Linux or Android Go SFTP server
+                        // On Android, currentDir is usually /data/user/0/com.echolink.app/files/tailscale
+                        // We can just dump it in the working directory because it's guaranteed to be writable
+                        resolvedRemotePath = $"{currentDir}/{remotePath}";
                     }
                     else
                     {
@@ -105,6 +195,7 @@ public class SftpService
         string remotePath,
         string localPath,
         Action<long, long> progressCallback,
+        int sshPort = 22,
         CancellationToken ct = default)
     {
         await Task.Run(() =>
@@ -112,7 +203,7 @@ public class SftpService
             var privateKeyFile = new PrivateKeyFile(privateKeyPath);
             var connectionInfo = new ConnectionInfo(
                 host,
-                2222,
+                sshPort,
                 username,
                 ProxyTypes.Socks5,
                 "127.0.0.1",

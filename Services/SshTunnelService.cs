@@ -28,21 +28,22 @@ public class SshTunnelService
     /// The caller is responsible for disposing of the Stream, which will automatically tear down the wrapper SSH tunnel.
     /// </summary>
     public async Task<Stream> CreateTunneledStreamAsync(
-        string host, 
-        string username, 
-        string privateKeyPath, 
-        int remoteLocalPort, 
+        string host,
+        string username,
+        string privateKeyPath,
+        int remoteLocalPort,
+        int sshPort = 2222,
         CancellationToken ct = default)
     {
         return await Task.Run(async () =>
         {
             var privateKeyFile = new PrivateKeyFile(privateKeyPath);
 
-            // 1. Connect to peer's port 2222 via our Tailscale SOCKS5 userspace proxy 
+            // 1. Connect to peer's SSH proxy
             var connectionInfo = new ConnectionInfo(
-                host, 
-                2222, 
-                username, 
+                host,
+                sshPort,
+                username,
                 ProxyTypes.Socks5, 
                 "127.0.0.1", 
                 Socks5Port, 

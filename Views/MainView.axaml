@@ -79,5 +79,23 @@
             
             <TransitioningContentControl DockPanel.Dock="Top" Content="{Binding CurrentPage}" Margin="0" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch" PageTransition="{x:Null}"/>
         </DockPanel>
+
+        <!-- Overlay for Pairing Requests -->
+        <Border Grid.ColumnSpan="2" Background="#99000000" IsVisible="{Binding ShowPairingRequest}" ZIndex="100">
+            <Border Background="#252526" BorderBrush="#3E3E42" BorderThickness="1" CornerRadius="12"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24" Width="360" MaxWidth="400">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Pairing Request" FontSize="20" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center"/>
+                    <TextBlock Text="{Binding PairingRequestText}" Foreground="#D4D4D4" TextWrapping="Wrap" TextAlignment="Center"/>
+                    
+                    <Grid ColumnDefinitions="*,*" Margin="0,12,0,0">
+                        <Button Grid.Column="0" Content="Decline" Command="{Binding RejectPairingCommand}"
+                                Background="#3E3E42" Foreground="White" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,8,0" CornerRadius="4"/>
+                        <Button Grid.Column="1" Content="Accept" Command="{Binding AcceptPairingCommand}"
+                                Background="#007ACC" Foreground="White" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="8,0,0,0" CornerRadius="4"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
 </UserControl>
