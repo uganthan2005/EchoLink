@@ -562,59 +562,69 @@ public async Task LoginAsync(Action<string> onAuthUrl, CancellationToken ct = de
         return;
     }
 
+    string cliPath = CliPath();
+    string unattended = OperatingSystem.IsWindows() ? " --unattended" : "";
+    string args = PrefixSocketArg($"up --login-server={HeadscaleServer} --force-reauth{unattended}");
+    if (!File.Exists(cliPath)) throw new Exception($"tailscale CLI not found at {cliPath}");
 
-        string cliPath = CliPath();
-        string unattended = OperatingSystem.IsWindows() ? " --unattended" : "";
-        string args = PrefixSocketArg($"up --login-server={HeadscaleServer} --force-reauth{unattended}");
+    var psi = new ProcessStartInfo
+    {
+        FileName = cliPath,
+        Arguments = args,
+        UseShellExecute = false,
+        CreateNoWindow = true,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true
+    };
 
-        if (!File.Exists(cliPath)) throw new Exception($"tailscale CLI not found at {cliPath}");
+    bool urlOpened = false;
+    var capturedOutput = new StringBuilder();
 
-        var psi = new ProcessStartInfo
+    using var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
+    proc.OutputDataReceived += (_, e) =>
+    {
+        if (e.Data == null) return;
+        capturedOutput.AppendLine(e.Data);
+        if (!urlOpened && e.Data.Contains("https://"))
         {
-            FileName = cliPath,
-            Arguments = args,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
+            int idx = e.Data.IndexOf("https://");
+            string part = e.Data[idx..].Trim();
+            // Extract only the URL (until next space)
+            int spaceIdx = part.IndexOf(' ');
+            if (spaceIdx > 0) part = part[..spaceIdx];
 
-        bool urlOpened = false;
-        var capturedOutput = new StringBuilder();
-
-        using var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        proc.OutputDataReceived += (_, e) =>
-        {
-            if (e.Data == null) return;
-            capturedOutput.AppendLine(e.Data);
-            if (!urlOpened && e.Data.Contains("https://"))
+            if (part.Contains("echo-link.app/a/") || part.Contains("echo-link.app/register/")) // Ensure it's an auth URL, not just the server URL
             {
-                int idx = e.Data.IndexOf("https://");
-
                 urlOpened = true;
-                onAuthUrl(e.Data[idx..].Trim());
-            }
-        };
-        proc.ErrorDataReceived += (_, e) =>
+                onAuthUrl(part);
+            }        }
+    };
+    proc.ErrorDataReceived += (_, e) =>
+    {
+        if (e.Data == null) return;
+        capturedOutput.AppendLine(e.Data);
+        if (!urlOpened && e.Data.Contains("https://"))
         {
-             if (e.Data == null) return;
-            capturedOutput.AppendLine(e.Data);
-             if (!urlOpened && e.Data.Contains("https://"))
+            int idx = e.Data.IndexOf("https://");
+            string part = e.Data[idx..].Trim();
+            int spaceIdx = part.IndexOf(' ');
+            if (spaceIdx > 0) part = part[..spaceIdx];
+
+            if (part.Contains("echo-link.app/a/") || part.Contains("echo-link.app/register/"))
             {
-                int idx = e.Data.IndexOf("https://");
-
                 urlOpened = true;
-                onAuthUrl(e.Data[idx..].Trim());
+                onAuthUrl(part);
             }
-        };
+        }
+    };
 
-        proc.Start();
-        proc.BeginOutputReadLine();
-        proc.BeginErrorReadLine();
+    proc.Start();
+    proc.BeginOutputReadLine();
+    proc.BeginErrorReadLine();
 
-        await proc.WaitForExitAsync(ct);
-        if (proc.ExitCode != 0) throw new Exception(capturedOutput.ToString());
-    }
+    await proc.WaitForExitAsync(ct);
+    if (proc.ExitCode != 0) throw new Exception(capturedOutput.ToString());
+}
 
     private string? GetAndroidNativeLoginUrl()
     {

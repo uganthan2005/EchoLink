@@ -95,7 +95,25 @@ public partial class LoginViewModel : ViewModelBase
     {
         try
         {
-            // Primary attempt: Avalonia native launcher
+            // Primary attempt: Native shell commands are often more reliable for various DEs/environments
+            if (OperatingSystem.IsWindows())
+            {
+                // cmd.exe /c start replaces UseShellExecute=true for published apps
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd", $"/c start {url.Replace("&", "^&")}") { CreateNoWindow = true });
+                return;
+            }
+            if (OperatingSystem.IsLinux())
+            {
+                System.Diagnostics.Process.Start("xdg-open", url);
+                return;
+            }
+            if (OperatingSystem.IsMacOS())
+            {
+                System.Diagnostics.Process.Start("open", url);
+                return;
+            }
+
+            // Fallback: Avalonia native launcher
             if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow != null)
             {
                 var topLevel = Avalonia.Controls.TopLevel.GetTopLevel(desktop.MainWindow);
@@ -115,28 +133,12 @@ public partial class LoginViewModel : ViewModelBase
                 }
             }
 
-            // Bulletproof fallback for published Windows EXEs
-            if (OperatingSystem.IsWindows())
+            // Ultimate fallback
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                // cmd.exe /c start replaces UseShellExecute=true for published apps
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd", $"/c start {url.Replace("&", "^&")}") { CreateNoWindow = true });
-            }
-            else if (OperatingSystem.IsLinux())
-            {
-                System.Diagnostics.Process.Start("xdg-open", url);
-            }
-            else if (OperatingSystem.IsMacOS())
-            {
-                System.Diagnostics.Process.Start("open", url);
-            }
-            else
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = url,
-                    UseShellExecute = true
-                });
-            }
+                FileName = url,
+                UseShellExecute = true
+            });
         }
         catch (Exception ex)
         {
