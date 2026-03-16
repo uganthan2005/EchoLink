@@ -1,10 +1,13 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Net;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EchoLink.Models;
 using EchoLink.Services;
+using Renci.SshNet;
 
 namespace EchoLink.ViewModels;
 
@@ -13,6 +16,7 @@ public partial class RemoteControlViewModel : ViewModelBase
     private readonly LoggingService _log = LoggingService.Instance;
 
     [ObservableProperty] private Device? _selectedTarget;
+    [ObservableProperty] private bool _isBusy;
     public ObservableCollection<Device> OnlineDevices { get; } = new();
 
     // Trackpad state
@@ -78,21 +82,106 @@ public partial class RemoteControlViewModel : ViewModelBase
     // ── Quick Actions ─────────────────────────────────────────────────────────
 
     [RelayCommand]
-    private async Task LockScreenAsync() => await SendCommandAsync("Lock");
+    private async Task LockScreenAsync() => await ExecuteActionAsync("Lock");
 
     [RelayCommand]
-    private async Task RestartAsync() => await SendCommandAsync("Restart");
+    private async Task RestartAsync() => await ExecuteActionAsync("Restart");
 
     [RelayCommand]
-    private async Task ShutdownAsync() => await SendCommandAsync("Shutdown");
+    private async Task ShutdownAsync() => await ExecuteActionAsync("Shutdown");
 
-    private async Task SendCommandAsync(string action)
+    private async Task ExecuteActionAsync(string action)
     {
-        _log.Info($"Sending RC command: {action}");
-        if (SelectedTarget != null)
+        if (SelectedTarget == null || IsBusy) return;
+
+        string targetIp = SelectedTarget.IpAddress;
+        _log.Info($"[RC] Sending command: {action} to {targetIp}");
+
+        // Determine the SSH command
+        string sshCommand = action switch
         {
+            "Lock"     => "loginctl lock-sessions",
+            "Restart"  => "sudo systemctl reboot",
+            "Shutdown" => "sudo systemctl poweroff",
+            _          => throw new ArgumentException($"Invalid action: {action}")
+        };
+
+        IsBusy = true;
+        try
+        {
+            // 1. Try SSH first (Best for system level actions)
+            var settings = SettingsService.Instance.Load();
+            if (settings.PeerUsernames.TryGetValue(targetIp, out var username))
+            {
+                try
+                {
+                    string pKeyPath = new SshPairingService(TailscaleService.Instance).PrivateKeyPath;
+                    await ExecuteSshCommandAsync(targetIp, username, pKeyPath, sshCommand);
+                    return; // Success
+                }
+                catch (Exception sshEx)
+                {
+                    _log.Warning($"[RC] SSH failed: {sshEx.Message}. Falling back to TCP bridge...");
+                }
+            }
+            else
+            {
+                 _log.Debug($"[RC] Peer {targetIp} not paired for SSH. Using TCP fallback.");
+            }
+
+            // 2. Fallback to the custom TCP bridge (Requires app running on target)
             await RemoteControlService.Instance.SendCommandAsync(action);
         }
+        catch (Exception ex)
+        {
+            _log.Error($"[RC] Command execution failed: {ex.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task ExecuteSshCommandAsync(string ip, string username, string pKeyPath, string command)
+    {
+        await Task.Run(() =>
+        {
+            try
+            {
+                var privateKeyFile = new PrivateKeyFile(pKeyPath);
+                
+                ConnectionInfo connectionInfo;
+                bool isAndroid = RuntimeInformation.IsOSPlatform(OSPlatform.Create("ANDROID"));
+
+                if (isAndroid)
+                {
+                    // Use Tailscale userspace proxy (Port 1055)
+                    connectionInfo = new ConnectionInfo(
+                        ip, 22, username,
+                        ProxyTypes.Socks5, "127.0.0.1", 1055, "", "",
+                        new PrivateKeyAuthenticationMethod(username, privateKeyFile));
+                }
+                else
+                {
+                    connectionInfo = new ConnectionInfo(
+                        ip, 22, username,
+                        new PrivateKeyAuthenticationMethod(username, privateKeyFile));
+                }
+
+                using var client = new SshClient(connectionInfo);
+                client.Connect();
+                
+                using var cmd = client.CreateCommand(command);
+                cmd.Execute();
+                _log.Info($"[RC] SSH Command '{command}' executed successfully.");
+                
+                client.Disconnect();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"SSH.NET failure: {ex.Message}");
+            }
+        });
     }
 
     // ── Trackpad ──────────────────────────────────────────────────────────────

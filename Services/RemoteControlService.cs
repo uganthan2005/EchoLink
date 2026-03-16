@@ -178,6 +178,27 @@ public class RemoteControlService
                 {
                     LockWorkStation();
                 }
+                else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !IsAndroid())
+                {
+                    _log.Info("[RC] Locking screen via loginctl...");
+                    Task.Run(() => System.Diagnostics.Process.Start("loginctl", "lock-sessions"));
+                }
+            }
+            else if (action == 0x01) // Restart
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !IsAndroid())
+                {
+                    _log.Info("[RC] Restarting system via systemctl...");
+                    Task.Run(() => System.Diagnostics.Process.Start("sudo", "systemctl reboot"));
+                }
+            }
+            else if (action == 0x02) // Shutdown
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !IsAndroid())
+                {
+                    _log.Info("[RC] Shutting down system via systemctl...");
+                    Task.Run(() => System.Diagnostics.Process.Start("sudo", "systemctl poweroff"));
+                }
             }
         }
     }
@@ -291,7 +312,16 @@ public class RemoteControlService
         if (_clientStream == null || !_client.Connected) return;
         try
         {
-            byte actionId = cmd == "Lock" ? (byte)0x00 : (byte)0x01;
+            byte actionId = cmd switch
+            {
+                "Lock"     => 0x00,
+                "Restart"  => 0x01,
+                "Shutdown" => 0x02,
+                _          => 0xFF
+            };
+            
+            if (actionId == 0xFF) return;
+
             byte[] packet = new byte[4];
             packet[0] = 0x05; // SYSTEM_ACTION
             
