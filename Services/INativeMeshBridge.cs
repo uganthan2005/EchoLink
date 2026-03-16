@@ -10,4 +10,10 @@ public interface INativeMeshBridge
     void StartNode(string configDir, string authKey, string hostname, string localIp);
     void StopNode();
     void LogoutNode();
+    
+    // Remote Control
+    int InitializeVirtualMouse();
+    void SendMouseRelative(int dx, int dy);
+    void SendMouseClick(int button, int state);
+    void SendSystemAction(int actionId);
 }

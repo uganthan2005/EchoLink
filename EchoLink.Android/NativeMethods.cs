@@ -35,4 +35,17 @@ public static class NativeMethods
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern void LogoutNode();
+
+    // Remote Control
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int InitializeVirtualMouse();
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void SendMouseRelative(int dx, int dy);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void SendMouseClick(int button, int state);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void SendSystemAction(int actionId);
 }

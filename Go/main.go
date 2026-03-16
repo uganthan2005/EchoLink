@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"github.com/armon/go-socks5"
+	"github.com/bendahl/uinput"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"tailscale.com/ipn/ipnstate"
@@ -32,7 +33,12 @@ import (
 func init() {
 	os.Setenv("TS_DISABLE_LINUX_ROUTING", "true")
 	os.Setenv("TS_ANDROID_ALLOW_UNCONFIGURED_ROUTING", "true")
+	os.Setenv("TS_NETSTACK_ALLOW_UNCONFIGURED_ROUTING", "true")
 	os.Setenv("TS_DEBUG_NETSTACK", "true")
+	os.Setenv("TS_SKIP_NETLINK", "true")
+	os.Setenv("TS_NO_NETLINK", "true")
+	os.Setenv("TS_DEBUG_NETMON_TYPE", "poll")
+	os.Setenv("TS_FAKE_NETMON", "true")
 }
 
 var (
@@ -101,7 +107,11 @@ func StartEchoLinkNode(configDir *C.char, authKey *C.char, hostname *C.char, loc
 			msg := fmt.Sprintf(format, args...)
 			if strings.Contains(msg, "https://") {
 				idx := strings.Index(msg, "https://")
-				lastAuthUrl = msg[idx:]
+				urlPart := msg[idx:]
+				if spaceIdx := strings.Index(urlPart, " "); spaceIdx > 0 {
+					urlPart = urlPart[:spaceIdx]
+				}
+				lastAuthUrl = strings.TrimSpace(urlPart)
 				internalState = "NeedsLogin"
 			}
 			log.Printf("[tsnet] %s", msg)
@@ -109,24 +119,55 @@ func StartEchoLinkNode(configDir *C.char, authKey *C.char, hostname *C.char, loc
 	}
 
 	go func() {
-		_, err := tsServer.Up(context.Background())
-		if err == nil {
-			// THE SMOKING GUN FIX: All services MUST run concurrently!
-			go startSftpServer()
-			go startPairingForwarder()
-			go startSocks5Proxy()
+	_, err := tsServer.Up(context.Background())
+	if (err == nil) {
+		// THE SMOKING GUN FIX: All services MUST run concurrently!
+		go startSftpServer()
+		go startPairingForwarder()
+		go startRcForwarder()
+		go startSocks5Proxy()
 
-			internalState = "Running"
-		} else {
-			log.Printf("[Go] tsServer.Up error: %v", err)
-			lastErrorMsg = fmt.Sprintf("tsnet.Up error: %v", err)
-			internalState = "Error"
-		}
+		internalState = "Running"
+	} else {
+		log.Printf("[Go] tsServer.Up error: %v", err)
+		lastErrorMsg = fmt.Sprintf("tsnet.Up error: %v", err)
+		internalState = "Error"
+	}
 	}()
 
 	return 1
-}
+	}
 
+	func startRcForwarder() {
+	ln, err := tsServer.Listen("tcp", ":55555")
+	if err != nil {
+	log.Printf("[Go] Failed to listen on mesh port 55555: %v", err)
+	return
+	}
+
+	log.Printf("[Go] RC Forwarder listening on mesh port 55555, routing to 127.0.0.1:55555")
+
+	for {
+	meshConn, err := ln.Accept()
+	if err != nil {
+		log.Printf("[Go] RC forwarder accept error: %v", err)
+		return
+	}
+
+	go func(c net.Conn) {
+		defer c.Close()
+		localConn, err := net.Dial("tcp", "127.0.0.1:55555")
+		if err != nil {
+			log.Printf("[Go] Failed to dial local C# RC service: %v", err)
+			return
+		}
+		defer localConn.Close()
+
+		go io.Copy(c, localConn)
+		io.Copy(localConn, c)
+	}(meshConn)
+	}
+	}
 //export GetLastErrorMsg
 func GetLastErrorMsg() *C.char {
 	return C.CString(lastErrorMsg)
@@ -445,6 +486,53 @@ func StopEchoLinkNode() {
 		tsServer.Close()
 		tsServer = nil
 	}
+}
+
+// --- uinput Remote Control ---
+
+var virtualMouse uinput.Mouse
+
+//export InitializeVirtualMouse
+func InitializeVirtualMouse() int {
+	var err error
+	virtualMouse, err = uinput.CreateMouse("/dev/uinput", []byte("EchoLink Virtual Mouse"))
+	if err != nil {
+		log.Printf("[Go] Failed to init virtual mouse: %v", err)
+		return 0
+	}
+	log.Printf("[Go] Virtual mouse initialized successfully")
+	return 1
+}
+
+//export SendMouseRelative
+func SendMouseRelative(dx C.int, dy C.int) {
+	if virtualMouse != nil {
+		virtualMouse.Move(int32(dx), int32(dy))
+	}
+}
+
+//export SendMouseClick
+func SendMouseClick(button C.int, state C.int) {
+	if virtualMouse != nil {
+		if button == 0 { // Left
+			if state == 1 {
+				virtualMouse.LeftPress()
+			} else {
+				virtualMouse.LeftRelease()
+			}
+		} else if button == 1 { // Right
+			if state == 1 {
+				virtualMouse.RightPress()
+			} else {
+				virtualMouse.RightRelease()
+			}
+		}
+	}
+}
+
+//export SendSystemAction
+func SendSystemAction(actionId C.int) {
+	// E.g., 0 for lock, 1 for shutdown
 }
 
 func main() {}

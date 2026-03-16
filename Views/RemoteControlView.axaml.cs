@@ -23,21 +23,18 @@ public partial class RemoteControlView : UserControl
     private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         var pos = e.GetPosition(sender as Control);
-        ViewModel?.OnPointerPressed(pos.X, pos.Y);
+        ViewModel?.OnPointerPressed(pos.X, pos.Y, e.Pointer.Id);
         (sender as Border)?.Focus();
     }
 
     private void OnPointerMoved(object? sender, PointerEventArgs e)
     {
-        var props = e.GetCurrentPoint(sender as Control).Properties;
-        if (!props.IsLeftButtonPressed) return;
-
         var pos = e.GetPosition(sender as Control);
-        ViewModel?.OnPointerMoved(pos.X, pos.Y);
+        ViewModel?.OnPointerMoved(pos.X, pos.Y, e.Pointer.Id);
     }
 
     private void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        ViewModel?.OnPointerReleased();
+        ViewModel?.OnPointerReleased(e.Pointer.Id);
     }
 }

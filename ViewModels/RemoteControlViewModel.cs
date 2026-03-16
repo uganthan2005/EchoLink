@@ -23,6 +23,10 @@ public partial class RemoteControlViewModel : ViewModelBase
     private double _lastX;
     private double _lastY;
     private bool   _isDragging;
+    private DateTime _lastMoveTime = DateTime.MinValue;
+    private DateTime _pressTime;
+    private bool _hasMovedSincePress;
+    private int _activePointers = 0;
 
     public RemoteControlViewModel()
     {
@@ -93,20 +97,32 @@ public partial class RemoteControlViewModel : ViewModelBase
 
     // ── Trackpad ──────────────────────────────────────────────────────────────
 
-    public void OnPointerPressed(double x, double y)
+    public void OnPointerPressed(double x, double y, int pointerId)
     {
-        _isDragging  = true;
-        _lastX       = x;
-        _lastY       = y;
-        TrackpadStatus = "Pointer pressed";
+        _activePointers++;
+        if (_activePointers == 1)
+        {
+            _isDragging  = true;
+            _hasMovedSincePress = false;
+            _pressTime = DateTime.UtcNow;
+            _lastX       = x;
+            _lastY       = y;
+            TrackpadStatus = "Pointer pressed";
+        }
     }
 
-    public void OnPointerMoved(double x, double y)
+    public void OnPointerMoved(double x, double y, int pointerId)
     {
         if (!_isDragging) return;
 
         double deltaX = x - _lastX;
         double deltaY = y - _lastY;
+        
+        if (Math.Abs(deltaX) > 1 || Math.Abs(deltaY) > 1)
+        {
+            _hasMovedSincePress = true;
+        }
+
         _lastX = x;
         _lastY = y;
 
@@ -117,13 +133,48 @@ public partial class RemoteControlViewModel : ViewModelBase
 
         if (SelectedTarget != null)
         {
-            _ = RemoteControlService.Instance.SendMoveAsync(deltaX, deltaY);
+            var now = DateTime.UtcNow;
+            if ((now - _lastMoveTime).TotalMilliseconds >= 15)
+            {
+                _lastMoveTime = now;
+                _ = RemoteControlService.Instance.SendMoveAsync(deltaX, deltaY);
+            }
         }
     }
 
-    public void OnPointerReleased()
+    public void OnPointerReleased(int pointerId)
     {
-        _isDragging    = false;
-        TrackpadStatus = SelectedTarget != null ? "Connected" : "Disconnected";
+        if (_isDragging && !_hasMovedSincePress && (DateTime.UtcNow - _pressTime).TotalMilliseconds < 300)
+        {
+            // It's a tap
+            if (_activePointers == 1)
+            {
+                // Left click
+                _ = SendClickAsync(0);
+            }
+            else if (_activePointers == 2)
+            {
+                // Right click
+                _ = SendClickAsync(1);
+            }
+        }
+
+        _activePointers--;
+        if (_activePointers <= 0)
+        {
+            _activePointers = 0;
+            _isDragging    = false;
+            TrackpadStatus = SelectedTarget != null ? "Connected" : "Disconnected";
+        }
+    }
+
+    private async Task SendClickAsync(int button)
+    {
+        if (SelectedTarget != null)
+        {
+            await RemoteControlService.Instance.SendClickAsync(button, 1); // Press
+            await Task.Delay(20);
+            await RemoteControlService.Instance.SendClickAsync(button, 0); // Release
+        }
     }
 }

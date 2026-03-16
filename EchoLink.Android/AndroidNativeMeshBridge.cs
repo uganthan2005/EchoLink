@@ -49,4 +49,25 @@ public class AndroidNativeMeshBridge : INativeMeshBridge
         if (_libraryLoaded)
             NativeMethods.LogoutNode();
     }
+
+    public int InitializeVirtualMouse()
+    {
+        if (_libraryLoaded) return NativeMethods.InitializeVirtualMouse();
+        return 0;
+    }
+
+    public void SendMouseRelative(int dx, int dy)
+    {
+        if (_libraryLoaded) NativeMethods.SendMouseRelative(dx, dy);
+    }
+
+    public void SendMouseClick(int button, int state)
+    {
+        if (_libraryLoaded) NativeMethods.SendMouseClick(button, state);
+    }
+
+    public void SendSystemAction(int actionId)
+    {
+        if (_libraryLoaded) NativeMethods.SendSystemAction(actionId);
+    }
 }
