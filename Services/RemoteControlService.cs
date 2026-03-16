@@ -30,12 +30,44 @@ public class RemoteControlService
     [DllImport("echolink", CallingConvention = CallingConvention.Cdecl)]
     private static extern void SendSystemAction(int actionId);
 
-    // P/Invoke for Windows
-    [DllImport("user32.dll")]
-    private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, int dwExtraInfo);
-    
+    // P/Invoke for Windows - Modern SendInput API
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool LockWorkStation();
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT
+    {
+        public uint type;
+        public INPUTUNION u;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct INPUTUNION
+    {
+        [FieldOffset(0)]
+        public MOUSEINPUT mi;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    private const uint INPUT_MOUSE = 0;
+    private const uint MOUSEEVENTF_MOVE = 0x0001;
+    private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+    private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
 
     private static bool IsAndroid() => RuntimeInformation.IsOSPlatform(OSPlatform.Create("ANDROID"));
 
@@ -143,7 +175,7 @@ public class RemoteControlService
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                mouse_event(0x0001, dx, dy, 0, 0); // MOUSEEVENTF_MOVE
+                SendInputMove(dx, dy);
             }
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !IsAndroid())
             {
@@ -157,12 +189,7 @@ public class RemoteControlService
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                uint flag = 0;
-                if (button == 0) // Left
-                    flag = state == 1 ? 0x0002u : 0x0004u; // DOWN : UP
-                else if (button == 1) // Right
-                    flag = state == 1 ? 0x0008u : 0x0010u; // DOWN : UP
-                if (flag != 0) mouse_event(flag, 0, 0, 0, 0);
+                SendInputClick(button, state);
             }
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !IsAndroid())
             {
@@ -201,6 +228,49 @@ public class RemoteControlService
                 }
             }
         }
+    }
+
+    private void SendInputMove(int dx, int dy)
+    {
+        var inputs = new INPUT[1];
+        inputs[0].type = INPUT_MOUSE;
+        inputs[0].u.mi = new MOUSEINPUT
+        {
+            dx = dx,
+            dy = dy,
+            dwFlags = MOUSEEVENTF_MOVE,
+            dwExtraInfo = new IntPtr(0x01) // Non-zero to identify our events
+        };
+
+        SendInput(1, inputs, Marshal.SizeOf<INPUT>());
+    }
+
+    private void SendInputClick(int button, int state)
+    {
+        uint dwFlags = 0;
+
+        if (button == 0) // Left button
+        {
+            dwFlags = state == 1 ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+        }
+        else if (button == 1) // Right button
+        {
+            dwFlags = state == 1 ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+        }
+
+        if (dwFlags == 0) return;
+
+        var inputs = new INPUT[1];
+        inputs[0].type = INPUT_MOUSE;
+        inputs[0].u.mi = new MOUSEINPUT
+        {
+            dx = 0,
+            dy = 0,
+            dwFlags = dwFlags,
+            dwExtraInfo = new IntPtr(0x01)
+        };
+
+        SendInput(1, inputs, Marshal.SizeOf<INPUT>());
     }
 
     // ── Client Side (Android / Desktop) ──────────────────────────────────────
