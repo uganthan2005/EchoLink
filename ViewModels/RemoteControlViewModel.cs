@@ -101,8 +101,8 @@ public partial class RemoteControlViewModel : ViewModelBase
         string sshCommand = action switch
         {
             "Lock"     => "loginctl lock-sessions",
-            "Restart"  => "sudo systemctl reboot",
-            "Shutdown" => "sudo systemctl poweroff",
+            "Restart"  => "systemctl reboot",
+            "Shutdown" => "systemctl poweroff",
             _          => throw new ArgumentException($"Invalid action: {action}")
         };
 
