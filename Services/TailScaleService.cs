@@ -23,8 +23,8 @@ public class TailscaleService
     private string _socketPath = "";
     private readonly LoggingService _log = LoggingService.Instance;
 
-    private const string HeadscaleServer = "https://echo-link.app";
-    private const string HeadscaleHost = "echo-link.app";
+    private const string HeadscaleServer = "https://control.echo-link.app";
+    private const string HeadscaleHost = "control.echo-link.app";
 
     public INativeMeshBridge? NativeBridge { get; set; }
 

@@ -101,7 +101,7 @@ func StartEchoLinkNode(configDir *C.char, authKey *C.char, hostname *C.char, loc
 		Dir:        conf,
 		Hostname:   host,
 		AuthKey:    key,
-		ControlURL: "https://echo-link.app",
+		ControlURL: "https://control.echo-link.app",
 		Ephemeral:  false,
 		Logf: func(format string, args ...any) {
 			msg := fmt.Sprintf(format, args...)
