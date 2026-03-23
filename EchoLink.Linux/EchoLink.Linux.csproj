@@ -26,4 +26,9 @@
   <ItemGroup>
     <ProjectReference Include="..\EchoLink.csproj" />
   </ItemGroup>
+
+  <Target Name="BuildGoLibrary_Linux_Local" BeforeTargets="BeforeBuild" Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <Message Importance="High" Text="Building Go shared library for Linux..." />
+    <Exec Command="go build -buildmode=c-shared -o &quot;$(ProjectDir)$(OutDir)libecholink.so&quot; main.go" WorkingDirectory="$(ProjectDir)..\Go" />
+  </Target>
 </Project>

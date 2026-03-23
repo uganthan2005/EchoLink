@@ -30,9 +30,4 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="SSH.NET" Version="2025.1.0" />
   </ItemGroup>
-
- <Target Name="BuildGoLibrary_Linux" BeforeTargets="BeforeBuild" Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-    <MakeDir Directories="$(OutDir)" />
-    <Exec Command="go build -buildmode=c-shared -o &quot;$(ProjectDir)$(OutDir)libecholink.so&quot; main.go" WorkingDirectory="$(ProjectDir)Go" />
-  </Target>
 </Project>
