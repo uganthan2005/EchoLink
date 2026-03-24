@@ -22,10 +22,16 @@ public class RemoteControlService
     private static extern int InitializeVirtualMouse();
 
     [DllImport("echolink", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int InitializeVirtualKeyboard();
+
+    [DllImport("echolink", CallingConvention = CallingConvention.Cdecl)]
     private static extern void SendMouseRelative(int dx, int dy);
 
     [DllImport("echolink", CallingConvention = CallingConvention.Cdecl)]
     private static extern void SendMouseClick(int button, int state);
+
+    [DllImport("echolink", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void SendKeyPress(int keyCode, int state);
 
     [DllImport("echolink", CallingConvention = CallingConvention.Cdecl)]
     private static extern void SendSystemAction(int actionId);
@@ -49,6 +55,8 @@ public class RemoteControlService
     {
         [FieldOffset(0)]
         public MOUSEINPUT mi;
+        [FieldOffset(0)]
+        public KEYBDINPUT ki;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -62,12 +70,28 @@ public class RemoteControlService
         public IntPtr dwExtraInfo;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
     private const uint INPUT_MOUSE = 0;
+    private const uint INPUT_KEYBOARD = 1;
     private const uint MOUSEEVENTF_MOVE = 0x0001;
     private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     private const uint MOUSEEVENTF_LEFTUP = 0x0004;
     private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
     private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+
+    private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const uint KEYEVENTF_UNICODE = 0x0004;
+    private const uint KEYEVENTF_SCANCODE = 0x0008;
 
     private static bool IsAndroid() => RuntimeInformation.IsOSPlatform(OSPlatform.Create("ANDROID"));
 
@@ -82,7 +106,11 @@ public class RemoteControlService
         
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !IsAndroid())
         {
-            try { InitializeVirtualMouse(); }
+            try 
+            { 
+                InitializeVirtualMouse(); 
+                InitializeVirtualKeyboard();
+            }
             catch (Exception ex) { _log.Warning($"[RC] Failed to init Linux uinput: {ex.Message}"); }
         }
 
@@ -196,6 +224,20 @@ public class RemoteControlService
                 try { SendMouseClick(button, state); } catch {}
             }
         }
+        else if (type == 0x03) // KEYBOARD_EVENT
+        {
+            ushort keyCode = BitConverter.ToUInt16(payload, 0);
+            byte state = payload[2];
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                SendInputKey(keyCode, state);
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !IsAndroid())
+            {
+                try { SendKeyPress(keyCode, state); } catch {}
+            }
+        }
         else if (type == 0x05) // SYSTEM_ACTION
         {
             byte action = payload[0];
@@ -267,6 +309,21 @@ public class RemoteControlService
             dx = 0,
             dy = 0,
             dwFlags = dwFlags,
+            dwExtraInfo = new IntPtr(0x01)
+        };
+
+        SendInput(1, inputs, Marshal.SizeOf<INPUT>());
+    }
+
+    private void SendInputKey(ushort vkCode, int state)
+    {
+        var inputs = new INPUT[1];
+        inputs[0].type = INPUT_KEYBOARD;
+        inputs[0].u.ki = new KEYBDINPUT
+        {
+            wVk = vkCode,
+            wScan = 0,
+            dwFlags = state == 0 ? KEYEVENTF_KEYUP : 0,
             dwExtraInfo = new IntPtr(0x01)
         };
 
@@ -420,6 +477,28 @@ public class RemoteControlService
             
             packet[3] = (byte)button;
             packet[4] = (byte)state;
+
+            await _clientStream.WriteAsync(packet, 0, packet.Length);
+        }
+        catch { Disconnect(); }
+    }
+
+    public async Task SendKeyAsync(ushort keyCode, int state)
+    {
+        if (_clientStream == null || !_client.Connected) return;
+        try
+        {
+            byte[] packet = new byte[6];
+            packet[0] = 0x03; // KEYBOARD_EVENT
+
+            byte[] len = BitConverter.GetBytes((ushort)3);
+            packet[1] = len[0];
+            packet[2] = len[1];
+
+            byte[] keyBytes = BitConverter.GetBytes(keyCode);
+            packet[3] = keyBytes[0];
+            packet[4] = keyBytes[1];
+            packet[5] = (byte)state;
 
             await _clientStream.WriteAsync(packet, 0, packet.Length);
         }

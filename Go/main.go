@@ -490,7 +490,10 @@ func StopEchoLinkNode() {
 
 // --- uinput Remote Control ---
 
-var virtualMouse uinput.Mouse
+var (
+	virtualMouse    uinput.Mouse
+	virtualKeyboard uinput.Keyboard
+)
 
 //export InitializeVirtualMouse
 func InitializeVirtualMouse() int {
@@ -501,6 +504,18 @@ func InitializeVirtualMouse() int {
 		return 0
 	}
 	log.Printf("[Go] Virtual mouse initialized successfully")
+	return 1
+}
+
+//export InitializeVirtualKeyboard
+func InitializeVirtualKeyboard() int {
+	var err error
+	virtualKeyboard, err = uinput.CreateKeyboard("/dev/uinput", []byte("EchoLink Virtual Keyboard"))
+	if err != nil {
+		log.Printf("[Go] Failed to init virtual keyboard: %v", err)
+		return 0
+	}
+	log.Printf("[Go] Virtual keyboard initialized successfully")
 	return 1
 }
 
@@ -527,6 +542,20 @@ func SendMouseClick(button C.int, state C.int) {
 				virtualMouse.RightRelease()
 			}
 		}
+	}
+}
+
+//export SendKeyPress
+func SendKeyPress(keyCode C.int, state C.int) {
+	if virtualKeyboard != nil {
+		log.Printf("[Go] KeyPress: code=%d, state=%d", int(keyCode), int(state))
+		if state == 1 {
+			virtualKeyboard.KeyDown(int(keyCode))
+		} else {
+			virtualKeyboard.KeyUp(int(keyCode))
+		}
+	} else {
+		log.Printf("[Go] KeyPress failed: virtualKeyboard not initialized")
 	}
 }
 

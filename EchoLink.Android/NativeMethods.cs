@@ -41,10 +41,16 @@ public static class NativeMethods
     public static extern int InitializeVirtualMouse();
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int InitializeVirtualKeyboard();
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern void SendMouseRelative(int dx, int dy);
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern void SendMouseClick(int button, int state);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void SendKeyPress(int keyCode, int state);
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern void SendSystemAction(int actionId);

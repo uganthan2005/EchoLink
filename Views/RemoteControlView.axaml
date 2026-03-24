@@ -95,15 +95,34 @@
 
         <!-- Trackpad area -->
         <StackPanel DockPanel.Dock="Top" Spacing="8">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock Text="Trackpad"
-                           FontSize="13" FontWeight="SemiBold"
-                           Foreground="#B3B3B3"
-                           VerticalAlignment="Center"/>
-                <TextBlock Text="{Binding TrackpadStatus}"
-                           FontSize="12" Foreground="#00E5FF"
-                           VerticalAlignment="Center"/>
-            </StackPanel>
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Trackpad"
+                               FontSize="13" FontWeight="SemiBold"
+                               Foreground="#B3B3B3"
+                               VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding TrackpadStatus}"
+                               FontSize="12" Foreground="#00E5FF"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+                
+                <Button Grid.Column="1" Classes="Nav" Click="ToggleKeyboard_Click"
+                        Padding="8,4" Background="#2D2D2D" CornerRadius="4">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="⌨" FontSize="16"/>
+                        <TextBlock Text="Keyboard" FontSize="12" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <!-- Hidden TextBox for capturing mobile keyboard input -->
+            <TextBox Name="HiddenInput"
+                     Width="1" Height="1"
+                     Opacity="0"
+                     IsHitTestVisible="True"
+                     KeyDown="HiddenInput_KeyDown"
+                     TextInput="HiddenInput_TextInput"
+                     LostFocus="HiddenInput_LostFocus"/>
 
             <Border Name="TrackpadArea"
                     Background="#1A1A1A"

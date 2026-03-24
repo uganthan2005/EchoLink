@@ -266,4 +266,98 @@ public partial class RemoteControlViewModel : ViewModelBase
             await RemoteControlService.Instance.SendClickAsync(button, 0); // Release
         }
     }
+
+    public void OnKeyDown(Avalonia.Input.Key key, Avalonia.Input.KeyModifiers modifiers)
+    {
+        if (SelectedTarget == null) return;
+
+        ushort keyCode = MapToPlatformKey(key, SelectedTarget.Os);
+        if (keyCode == 0)
+        {
+            _log.Debug($"[RC] Unmapped key: {key}");
+            return;
+        }
+
+        _log.Debug($"[RC] Sending key: {key} (code={keyCode}) to {SelectedTarget.Name}");
+
+        bool isShift = modifiers.HasFlag(Avalonia.Input.KeyModifiers.Shift);
+        ushort shiftKey = MapToPlatformKey(Avalonia.Input.Key.LeftShift, SelectedTarget.Os);
+
+        _ = Task.Run(async () =>
+        {
+            if (isShift && shiftKey != 0) await RemoteControlService.Instance.SendKeyAsync(shiftKey, 1);
+            
+            await RemoteControlService.Instance.SendKeyAsync(keyCode, 1); // Press
+            await Task.Delay(20);
+            await RemoteControlService.Instance.SendKeyAsync(keyCode, 0); // Release
+
+            if (isShift && shiftKey != 0) await RemoteControlService.Instance.SendKeyAsync(shiftKey, 0);
+        });
+    }
+
+    private ushort MapToPlatformKey(Avalonia.Input.Key key, string os)
+    {
+        bool isWindows = os?.Contains("Windows", StringComparison.OrdinalIgnoreCase) ?? false;
+
+        if (isWindows)
+        {
+            return key switch
+            {
+                Avalonia.Input.Key.A => 0x41, Avalonia.Input.Key.B => 0x42, Avalonia.Input.Key.C => 0x43,
+                Avalonia.Input.Key.D => 0x44, Avalonia.Input.Key.E => 0x45, Avalonia.Input.Key.F => 0x46,
+                Avalonia.Input.Key.G => 0x47, Avalonia.Input.Key.H => 0x48, Avalonia.Input.Key.I => 0x49,
+                Avalonia.Input.Key.J => 0x4A, Avalonia.Input.Key.K => 0x4B, Avalonia.Input.Key.L => 0x4C,
+                Avalonia.Input.Key.M => 0x4D, Avalonia.Input.Key.N => 0x4E, Avalonia.Input.Key.O => 0x4F,
+                Avalonia.Input.Key.P => 0x50, Avalonia.Input.Key.Q => 0x51, Avalonia.Input.Key.R => 0x52,
+                Avalonia.Input.Key.S => 0x53, Avalonia.Input.Key.T => 0x54, Avalonia.Input.Key.U => 0x55,
+                Avalonia.Input.Key.V => 0x56, Avalonia.Input.Key.W => 0x57, Avalonia.Input.Key.X => 0x58,
+                Avalonia.Input.Key.Y => 0x59, Avalonia.Input.Key.Z => 0x5A,
+                Avalonia.Input.Key.D0 => 0x30, Avalonia.Input.Key.D1 => 0x31, Avalonia.Input.Key.D2 => 0x32,
+                Avalonia.Input.Key.D3 => 0x33, Avalonia.Input.Key.D4 => 0x34, Avalonia.Input.Key.D5 => 0x35,
+                Avalonia.Input.Key.D6 => 0x36, Avalonia.Input.Key.D7 => 0x37, Avalonia.Input.Key.D8 => 0x38,
+                Avalonia.Input.Key.D9 => 0x39,
+                Avalonia.Input.Key.LeftShift => 0x10, Avalonia.Input.Key.RightShift => 0x10,
+                Avalonia.Input.Key.LeftCtrl => 0x11, Avalonia.Input.Key.RightCtrl => 0x11,
+                Avalonia.Input.Key.LeftAlt => 0x12, Avalonia.Input.Key.RightAlt => 0x12,
+                Avalonia.Input.Key.Enter => 0x0D, Avalonia.Input.Key.Back => 0x08, Avalonia.Input.Key.Tab => 0x09,
+                Avalonia.Input.Key.Space => 0x20, Avalonia.Input.Key.Escape => 0x1B,
+                Avalonia.Input.Key.OemComma => 0xBC, Avalonia.Input.Key.OemPeriod => 0xBE,
+                Avalonia.Input.Key.OemSemicolon => 0xBA, Avalonia.Input.Key.OemQuotes => 0xDE,
+                Avalonia.Input.Key.OemOpenBrackets => 0xDB, Avalonia.Input.Key.OemCloseBrackets => 0xDD,
+                Avalonia.Input.Key.OemPipe => 0xDC, Avalonia.Input.Key.OemMinus => 0xBD,
+                Avalonia.Input.Key.OemPlus => 0xBB, Avalonia.Input.Key.OemQuestion => 0xBF,
+                _ => 0
+            };
+        }
+        else // Linux (uinput keycodes)
+        {
+            return key switch
+            {
+                Avalonia.Input.Key.A => 30, Avalonia.Input.Key.B => 48, Avalonia.Input.Key.C => 46,
+                Avalonia.Input.Key.D => 32, Avalonia.Input.Key.E => 18, Avalonia.Input.Key.F => 33,
+                Avalonia.Input.Key.G => 34, Avalonia.Input.Key.H => 35, Avalonia.Input.Key.I => 23,
+                Avalonia.Input.Key.J => 36, Avalonia.Input.Key.K => 37, Avalonia.Input.Key.L => 38,
+                Avalonia.Input.Key.M => 50, Avalonia.Input.Key.N => 49, Avalonia.Input.Key.O => 24,
+                Avalonia.Input.Key.P => 25, Avalonia.Input.Key.Q => 16, Avalonia.Input.Key.R => 19,
+                Avalonia.Input.Key.S => 31, Avalonia.Input.Key.T => 20, Avalonia.Input.Key.U => 22,
+                Avalonia.Input.Key.V => 47, Avalonia.Input.Key.W => 17, Avalonia.Input.Key.X => 45,
+                Avalonia.Input.Key.Y => 21, Avalonia.Input.Key.Z => 44,
+                Avalonia.Input.Key.D0 => 11, Avalonia.Input.Key.D1 => 2, Avalonia.Input.Key.D2 => 3,
+                Avalonia.Input.Key.D3 => 4, Avalonia.Input.Key.D4 => 5, Avalonia.Input.Key.D5 => 6,
+                Avalonia.Input.Key.D6 => 7, Avalonia.Input.Key.D7 => 8, Avalonia.Input.Key.D8 => 9,
+                Avalonia.Input.Key.D9 => 10,
+                Avalonia.Input.Key.LeftShift => 42, Avalonia.Input.Key.RightShift => 54,
+                Avalonia.Input.Key.LeftCtrl => 29, Avalonia.Input.Key.RightCtrl => 97,
+                Avalonia.Input.Key.LeftAlt => 56, Avalonia.Input.Key.RightAlt => 100,
+                Avalonia.Input.Key.Enter => 28, Avalonia.Input.Key.Back => 14, Avalonia.Input.Key.Tab => 15,
+                Avalonia.Input.Key.Space => 57, Avalonia.Input.Key.Escape => 1,
+                Avalonia.Input.Key.OemComma => 51, Avalonia.Input.Key.OemPeriod => 52,
+                Avalonia.Input.Key.OemSemicolon => 39, Avalonia.Input.Key.OemQuotes => 40,
+                Avalonia.Input.Key.OemOpenBrackets => 26, Avalonia.Input.Key.OemCloseBrackets => 27,
+                Avalonia.Input.Key.OemPipe => 43, Avalonia.Input.Key.OemMinus => 12,
+                Avalonia.Input.Key.OemPlus => 13, Avalonia.Input.Key.OemQuestion => 53,
+                _ => 0
+            };
+        }
+    }
 }
