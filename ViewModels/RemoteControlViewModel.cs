@@ -272,27 +272,83 @@ public partial class RemoteControlViewModel : ViewModelBase
         if (SelectedTarget == null) return;
 
         ushort keyCode = MapToPlatformKey(key, SelectedTarget.Os);
-        if (keyCode == 0)
-        {
-            _log.Debug($"[RC] Unmapped key: {key}");
-            return;
-        }
-
-        _log.Debug($"[RC] Sending key: {key} (code={keyCode}) to {SelectedTarget.Name}");
+        if (keyCode == 0) return;
 
         bool isShift = modifiers.HasFlag(Avalonia.Input.KeyModifiers.Shift);
         ushort shiftKey = MapToPlatformKey(Avalonia.Input.Key.LeftShift, SelectedTarget.Os);
 
         _ = Task.Run(async () =>
         {
-            if (isShift && shiftKey != 0) await RemoteControlService.Instance.SendKeyAsync(shiftKey, 1);
-            
-            await RemoteControlService.Instance.SendKeyAsync(keyCode, 1); // Press
-            await Task.Delay(20);
-            await RemoteControlService.Instance.SendKeyAsync(keyCode, 0); // Release
+            try
+            {
+                if (isShift && shiftKey != 0) await RemoteControlService.Instance.SendKeyAsync(shiftKey, 1);
+                
+                await RemoteControlService.Instance.SendKeyAsync(keyCode, 1); // Press
+                await Task.Delay(15); // Small delay to ensure the OS registers it
+                await RemoteControlService.Instance.SendKeyAsync(keyCode, 0); // Release
 
-            if (isShift && shiftKey != 0) await RemoteControlService.Instance.SendKeyAsync(shiftKey, 0);
+                if (isShift && shiftKey != 0) await RemoteControlService.Instance.SendKeyAsync(shiftKey, 0);
+            }
+            catch (Exception ex) { _log.Debug($"[RC] Key send failed: {ex.Message}"); }
         });
+    }
+
+    public void OnCharTyped(char c)
+    {
+        if (SelectedTarget == null) return;
+
+        bool isWindows = SelectedTarget.Os.Contains("Windows", StringComparison.OrdinalIgnoreCase);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (isWindows)
+                {
+                    // For Windows, we can often just map the char to a Virtual Key
+                    // and let the backend handle it.
+                    ushort vk = (ushort)char.ToUpper(c);
+                    bool needsShift = char.IsUpper(c) || "!@#$%^&*()_+{}|:\"<>?".Contains(c);
+                    
+                    if (needsShift) await RemoteControlService.Instance.SendKeyAsync(0x10, 1); // SHIFT
+                    await RemoteControlService.Instance.SendKeyAsync(vk, 1);
+                    await Task.Delay(10);
+                    await RemoteControlService.Instance.SendKeyAsync(vk, 0);
+                    if (needsShift) await RemoteControlService.Instance.SendKeyAsync(0x10, 0);
+                }
+                else
+                {
+                    // Linux uinput needs raw scan codes
+                    ushort scanCode = MapCharToLinuxKeyCode(c);
+                    if (scanCode == 0) return;
+
+                    bool needsShift = char.IsUpper(c) || "!@#$%^&*()_+{}|:\"<>?".Contains(c);
+                    
+                    if (needsShift) await RemoteControlService.Instance.SendKeyAsync(42, 1); // LeftShift
+                    await RemoteControlService.Instance.SendKeyAsync(scanCode, 1);
+                    await Task.Delay(10);
+                    await RemoteControlService.Instance.SendKeyAsync(scanCode, 0);
+                    if (needsShift) await RemoteControlService.Instance.SendKeyAsync(42, 0);
+                }
+            }
+            catch (Exception ex) { _log.Debug($"[RC] Char send failed: {ex.Message}"); }
+        });
+    }
+
+    private ushort MapCharToLinuxKeyCode(char c)
+    {
+        return char.ToLower(c) switch
+        {
+            'a' => 30, 'b' => 48, 'c' => 46, 'd' => 32, 'e' => 18, 'f' => 33, 'g' => 34, 
+            'h' => 35, 'i' => 23, 'j' => 36, 'k' => 37, 'l' => 38, 'm' => 50, 'n' => 49, 
+            'o' => 24, 'p' => 25, 'q' => 16, 'r' => 19, 's' => 31, 't' => 20, 'u' => 22, 
+            'v' => 47, 'w' => 17, 'x' => 45, 'y' => 21, 'z' => 44,
+            '1' => 2,  '2' => 3,  '3' => 4,  '4' => 5,  '5' => 6, 
+            '6' => 7,  '7' => 8,  '8' => 9,  '9' => 10, '0' => 11,
+            ' ' => 57, ',' => 51, '.' => 52, '/' => 53, ';' => 39, '\'' => 40,
+            '[' => 26, ']' => 27, '\\' => 43, '-' => 12, '=' => 13,
+            _ => 0
+        };
     }
 
     private ushort MapToPlatformKey(Avalonia.Input.Key key, string os)

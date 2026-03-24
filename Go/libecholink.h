@@ -97,8 +97,10 @@ extern char* GetLoginUrl(void);
 extern void LogoutNode(void);
 extern void StopEchoLinkNode(void);
 extern GoInt InitializeVirtualMouse(void);
+extern GoInt InitializeVirtualKeyboard(void);
 extern void SendMouseRelative(int dx, int dy);
 extern void SendMouseClick(int button, int state);
+extern void SendKeyPress(int keyCode, int state);
 extern void SendSystemAction(int actionId);
 
 #ifdef __cplusplus

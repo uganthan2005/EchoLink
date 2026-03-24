@@ -43,6 +43,9 @@ public class RemoteControlService
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool LockWorkStation();
 
+    [DllImport("echolink", CallingConvention = CallingConvention.Cdecl)]
+private static extern void InjectPasteShortcut();
+
     [StructLayout(LayoutKind.Sequential)]
     private struct INPUT
     {
@@ -238,6 +241,34 @@ public class RemoteControlService
                 try { SendKeyPress(keyCode, state); } catch {}
             }
         }
+        else if (type == 0x04) // TEXT_INJECT
+{
+    string injectedText = Encoding.UTF8.GetString(payload);
+    _log.Info($"[RC] Received text injection: {injectedText}");
+
+    // Access the clipboard on the main UI thread
+    Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+    {
+        var clipboard = Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop 
+            ? desktop.MainWindow?.Clipboard 
+            : null;
+
+        if (clipboard != null)
+        {
+            await clipboard.SetTextAsync(injectedText);
+            await Task.Delay(50); // Wait for OS buffer to catch up
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !IsAndroid())
+            {
+                try { InjectPasteShortcut(); } catch { }
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                SendInputPaste(); // Handles the Windows Ctrl+V
+            }
+        }
+    });
+}
         else if (type == 0x05) // SYSTEM_ACTION
         {
             byte action = payload[0];
@@ -329,6 +360,26 @@ public class RemoteControlService
 
         SendInput(1, inputs, Marshal.SizeOf<INPUT>());
     }
+    private void SendInputPaste()
+{
+    // VK_CONTROL = 0x11, V = 0x56
+    var inputs = new INPUT[4];
+    
+    // Ctrl Down
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].u.ki = new KEYBDINPUT { wVk = 0x11, dwFlags = 0 };
+    // V Down
+    inputs[1].type = INPUT_KEYBOARD;
+    inputs[1].u.ki = new KEYBDINPUT { wVk = 0x56, dwFlags = 0 };
+    // V Up
+    inputs[2].type = INPUT_KEYBOARD;
+    inputs[2].u.ki = new KEYBDINPUT { wVk = 0x56, dwFlags = KEYEVENTF_KEYUP };
+    // Ctrl Up
+    inputs[3].type = INPUT_KEYBOARD;
+    inputs[3].u.ki = new KEYBDINPUT { wVk = 0x11, dwFlags = KEYEVENTF_KEYUP };
+    
+    SendInput(4, inputs, Marshal.SizeOf<INPUT>());
+}
 
     // ── Client Side (Android / Desktop) ──────────────────────────────────────
 
@@ -504,4 +555,27 @@ public class RemoteControlService
         }
         catch { Disconnect(); }
     }
+    public async Task SendTextInjectionAsync(string text)
+{
+    if (_clientStream == null || !_client.Connected) return;
+    try
+    {
+        byte[] textBytes = Encoding.UTF8.GetBytes(text);
+        ushort payloadLen = (ushort)textBytes.Length;
+        
+        // Protocol: [Type (1 byte)] + [Length (2 bytes)] + [Payload bytes]
+        byte[] packet = new byte[3 + payloadLen];
+        packet[0] = 0x04; // TEXT_INJECT
+        
+        byte[] lenBytes = BitConverter.GetBytes(payloadLen);
+        packet[1] = lenBytes[0];
+        packet[2] = lenBytes[1];
+        
+        Array.Copy(textBytes, 0, packet, 3, payloadLen);
+
+        await _clientStream.WriteAsync(packet, 0, packet.Length);
+        _log.Debug($"[RC] Sent Text Injection: {text}");
+    }
+    catch { Disconnect(); }
+}
 }

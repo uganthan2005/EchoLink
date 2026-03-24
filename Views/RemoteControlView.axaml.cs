@@ -61,25 +61,30 @@ public partial class RemoteControlView : UserControl
 
     private void HiddenInput_KeyDown(object? sender, KeyEventArgs e)
     {
-        // Handle special keys that TextInput might miss (Backspace, Enter, Tab, etc.)
-        if (e.Key is Key.Back or Key.Enter or Key.Tab or Key.Escape or Key.Delete)
+        // Handle special control keys that TextChanged won't capture reliably
+        if (e.Key is Key.Back or Key.Enter or Key.Tab or Key.Escape or Key.Space or Key.Delete)
         {
             ViewModel?.OnKeyDown(e.Key, e.KeyModifiers);
+            e.Handled = true;
         }
     }
 
-    private void HiddenInput_TextInput(object? sender, TextInputEventArgs e)
+    private void HiddenInput_TextChanged(object? sender, TextChangedEventArgs e)
     {
-        if (string.IsNullOrEmpty(e.Text)) return;
-
-        foreach (var c in e.Text)
+        if (sender is TextBox textBox && !string.IsNullOrEmpty(textBox.Text))
         {
-            // Map character to Key if possible
-            Key key = MapCharToKey(c);
-            if (key != Key.None)
+            string newText = textBox.Text;
+            
+            // Send each character to the ViewModel
+            foreach (var c in newText)
             {
-                ViewModel?.OnKeyDown(key, KeyModifiers.None);
+                ViewModel?.OnCharTyped(c);
             }
+
+            // IMMEDIATELY CLEAR the buffer. 
+            // This stops the Android IME from trying to autocorrect/compose 
+            // and ensures the next character is captured as a "new" change.
+            textBox.Text = string.Empty;
         }
     }
 

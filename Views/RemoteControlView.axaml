@@ -121,7 +121,7 @@
                      Opacity="0"
                      IsHitTestVisible="True"
                      KeyDown="HiddenInput_KeyDown"
-                     TextInput="HiddenInput_TextInput"
+                     TextChanged="HiddenInput_TextChanged"
                      LostFocus="HiddenInput_LostFocus"/>
 
             <Border Name="TrackpadArea"
