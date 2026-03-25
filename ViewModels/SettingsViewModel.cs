@@ -27,6 +27,11 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _minimizeToTray = true;
     [ObservableProperty] private bool _showNotifications = true;
 
+    // ── Linux Power Actions ─────────────────────────────────────────────
+    public bool IsLinux => OperatingSystem.IsLinux();
+    [ObservableProperty] private bool _isLinuxPowerSetupDone;
+    [ObservableProperty] private bool _isCheckingLinuxSetup;
+
     // ── Hotkeys ─────────────────────────────────────────────────────────
     public ObservableCollection<HotkeyBinding> Hotkeys { get; } = [];
     public ObservableCollection<ClipboardShareDevice> ClipboardShareDevices { get; } = [];
@@ -44,6 +49,42 @@ public partial class SettingsViewModel : ViewModelBase
     {
         LoadSettings();
         _ = RefreshClipboardDevicesAsync();
+        if (IsLinux)
+        {
+            _ = CheckLinuxSetupAsync();
+        }
+    }
+
+    private async Task CheckLinuxSetupAsync()
+    {
+        IsCheckingLinuxSetup = true;
+        try
+        {
+            IsLinuxPowerSetupDone = await SystemControlService.Instance.IsLinuxPowerSetupDoneAsync();
+        }
+        finally
+        {
+            IsCheckingLinuxSetup = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task SetupLinuxPowerAsync()
+    {
+        bool success = await SystemControlService.Instance.SetupLinuxPowerActionsAsync();
+        if (success)
+        {
+            StatusText = "Linux Power Actions configured";
+            _log.Info("Linux Power Actions configured successfully.");
+            await CheckLinuxSetupAsync();
+        }
+        else
+        {
+            StatusText = "Failed to configure Linux Power Actions";
+            _log.Error("Failed to configure Linux Power Actions.");
+        }
+        ShowSaved = true;
+        _ = HideSavedBadgeAsync();
     }
 
     private void LoadSettings()

@@ -145,7 +145,7 @@ public partial class RemoteControlViewModel : ViewModelBase
         _log.Info($"Sending RC command: {action}");
         if (SelectedTarget != null)
         {
-            await RemoteControlService.Instance.SendCommandAsync(action);
+            await RemoteControlService.Instance.SendCommandAsync(SelectedTarget, action);
         }
     }
 

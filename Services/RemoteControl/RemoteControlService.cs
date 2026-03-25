@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EchoLink.Models;
 using EchoLink.Services.UnifiedProtocol;
+using Renci.SshNet;
 
 namespace EchoLink.Services;
 
@@ -56,13 +57,34 @@ public class RemoteControlService
         }
     }
 
-    public async Task SendCommandAsync(string cmd)
+    public async Task SendCommandAsync(Device target, string action)
     {
+        // 1. Primary path: SSH (No app required on target side, but needs SSH server)
+        try
+        {
+            string sshCommand = action switch
+            {
+                "Lock" => "loginctl lock-sessions",
+                "Restart" => "sudo systemctl reboot",
+                "Shutdown" => "sudo systemctl poweroff",
+                _ => throw new ArgumentException($"Unknown action: {action}")
+            };
+
+            _log.Info($"[RemoteControl] Attempting SSH command for {action}...");
+            await ExecuteSshCommandAsync(target, sshCommand);
+            return; // Success
+        }
+        catch (Exception ex)
+        {
+            _log.Warning($"[RemoteControl] SSH command failed, falling back to TCP Bridge: {ex.Message}");
+        }
+
+        // 2. Fallback path: TCP Bridge (Requires EchoLink app running on target)
         if (UnifiedProtocolClient.Instance.IsConnected)
         {
             try
             {
-                byte actionId = cmd switch
+                byte actionId = action switch
                 {
                     "Lock" => 0,
                     "Restart" => 1,
@@ -77,9 +99,47 @@ public class RemoteControlService
             }
             catch (Exception ex)
             {
-                _log.Warning($"RemoteControl send failed: {ex.Message}");
+                _log.Warning($"[RemoteControl] TCP Bridge send failed: {ex.Message}");
             }
         }
+        else
+        {
+            _log.Error("[RemoteControl] Both SSH and TCP Bridge failed. Ensure target is online and paired.");
+        }
+    }
+
+    public async Task ExecuteSshCommandAsync(Device target, string command)
+    {
+        await Task.Run(() =>
+        {
+            var settings = SettingsService.Instance.Load();
+            if (!settings.PeerUsernames.TryGetValue(target.IpAddress, out string? username))
+            {
+                username = "echolink-mesh";
+            }
+
+            string pkeyPath = new SshPairingService(TailscaleService.Instance).PrivateKeyPath;
+            var privateKeyFile = new PrivateKeyFile(pkeyPath);
+
+            // Connect to peer via Tailscale SOCKS5 proxy
+            // Note: Port 1055 is the internal Tailscale proxy port used by EchoLink
+            var connectionInfo = new ConnectionInfo(
+                target.IpAddress,
+                22,
+                username,
+                ProxyTypes.Socks5,
+                "127.0.0.1",
+                1055, 
+                "",
+                "",
+                new PrivateKeyAuthenticationMethod(username, privateKeyFile));
+
+            using var client = new SshClient(connectionInfo);
+            client.Connect();
+            using var sshCmd = client.CreateCommand(command);
+            sshCmd.Execute();
+            _log.Info($"[RemoteControl] SSH Command '{command}' executed on {target.IpAddress}");
+        });
     }
 
     // === Unified Protocol Integration ===

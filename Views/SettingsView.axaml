@@ -332,6 +332,59 @@
             </Border>
 
             <!-- ═══════════════════════════════════════════════════════════
+                 Section 5: Linux Power Actions (Only on Linux)
+            ════════════════════════════════════════════════════════════ -->
+            <Border DockPanel.Dock="Top" Classes="Card" Margin="0,0,0,24" IsVisible="{Binding IsLinux}">
+                <StackPanel Spacing="18">
+                    <StackPanel Spacing="2">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="⚡" FontSize="20" VerticalAlignment="Center"/>
+                            <TextBlock Text="Linux Power Actions" FontSize="18" FontWeight="Bold"
+                                       Foreground="#00E5FF"/>
+                        </StackPanel>
+                        <TextBlock Text="Enable remote reboot and shutdown for this device"
+                                   FontSize="12" Foreground="#B3B3B3" Margin="30,0,0,0"/>
+                    </StackPanel>
+
+                    <Border Height="1" Background="#3A3A3A" Margin="0,2"/>
+
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Secure Power Management" FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+                        <TextBlock Text="To allow remote devices to reboot or shutdown this computer, EchoLink needs permission to run systemctl commands without a password prompt. This setup will create a secure configuration in /etc/sudoers.d/."
+                                   FontSize="12" Foreground="#B3B3B3" TextWrapping="Wrap"/>
+                        
+                        <Grid ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                            <StackPanel Grid.Column="0" Spacing="4">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="Status:" FontSize="13" Foreground="#B3B3B3"/>
+                                    <TextBlock Text="Configured" Foreground="#00E676" FontWeight="Bold" IsVisible="{Binding IsLinuxPowerSetupDone}"/>
+                                    <TextBlock Text="Not Configured" Foreground="#FF5252" FontWeight="Bold" IsVisible="{Binding !IsLinuxPowerSetupDone}"/>
+                                    <ProgressBar IsIndeterminate="True" Height="2" Width="50" IsVisible="{Binding IsCheckingLinuxSetup}"/>
+                                </StackPanel>
+                                <TextBlock Text="You will be prompted for your password once." 
+                                           FontSize="11" Foreground="#888888"
+                                           IsVisible="{Binding !IsLinuxPowerSetupDone}"/>
+                            </StackPanel>
+                            
+                            <Button Grid.Column="1" 
+                                    Content="Configure Now" 
+                                    Command="{Binding SetupLinuxPowerCommand}"
+                                    Classes="Primary"
+                                    IsEnabled="{Binding !IsCheckingLinuxSetup}"
+                                    IsVisible="{Binding !IsLinuxPowerSetupDone}"/>
+                            
+                            <Button Grid.Column="1" 
+                                    Content="Re-Configure" 
+                                    Command="{Binding SetupLinuxPowerCommand}"
+                                    Background="Transparent"
+                                    Foreground="#00E5FF"
+                                    IsVisible="{Binding IsLinuxPowerSetupDone}"/>
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ═══════════════════════════════════════════════════════════
                  Action buttons
             ════════════════════════════════════════════════════════════ -->
             <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,0,0,16">
