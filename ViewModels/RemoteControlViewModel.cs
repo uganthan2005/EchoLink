@@ -24,11 +24,15 @@ public partial class RemoteControlViewModel : ViewModelBase
     [ObservableProperty] private string _audioStatus = "Audio idle";
     [ObservableProperty] private bool _isAudioStreaming;
 
+    [ObservableProperty] private bool _isLeftButtonPressed;
+    [ObservableProperty] private bool _isRightButtonPressed;
+
     private double _lastX;
     private double _lastY;
     private bool   _isDragging;
     private bool   _hasMovedSignificant;
     private DateTime _lastMoveTime;
+    private DateTime _lastClickTime;
 
     public RemoteControlViewModel()
     {
@@ -173,7 +177,8 @@ public partial class RemoteControlViewModel : ViewModelBase
         double deltaX = x - _lastX;
         double deltaY = y - _lastY;
         
-        if (Math.Abs(deltaX) > 1 || Math.Abs(deltaY) > 1)
+        // Slightly higher threshold (4px) to avoid accidental taps turning into moves
+        if (Math.Abs(deltaX) > 4 || Math.Abs(deltaY) > 4)
         {
             _hasMovedSignificant = true;
         }
@@ -196,6 +201,17 @@ public partial class RemoteControlViewModel : ViewModelBase
         }
     }
 
+    public async Task SetMouseButtonState(byte button, bool isDown)
+    {
+        if (button == 0) IsLeftButtonPressed = isDown;
+        else if (button == 1) IsRightButtonPressed = isDown;
+
+        if (SelectedTarget != null)
+        {
+            await RemoteControlService.Instance.SendClickAsync(button, (byte)(isDown ? 1 : 0));
+        }
+    }
+
     public void OnPointerReleased()
     {
         if (!_isDragging) return;
@@ -203,11 +219,29 @@ public partial class RemoteControlViewModel : ViewModelBase
         
         if (!_hasMovedSignificant && SelectedTarget != null)
         {
-            // Simple tap = Left Click
-            _ = SendClickAsync(0);
+            var now = DateTime.UtcNow;
+            if ((now - _lastClickTime).TotalMilliseconds < 450)
+            {
+                // Double Tap = Double Click
+                _ = SendDoubleClickAsync(0);
+                _lastClickTime = DateTime.MinValue; // Prevent triple click
+            }
+            else
+            {
+                // Simple tap = Left Click
+                _ = SendClickAsync(0);
+                _lastClickTime = now;
+            }
         }
 
         TrackpadStatus = SelectedTarget != null ? "Connected" : "Disconnected";
+    }
+
+    private async Task SendDoubleClickAsync(byte button)
+    {
+        await SendClickAsync(button);
+        await Task.Delay(50);
+        await SendClickAsync(button);
     }
 
     private async Task SendClickAsync(byte button)

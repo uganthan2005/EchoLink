@@ -30,4 +30,22 @@ public partial class RemoteControlView : UserControl
     {
         ViewModel?.OnPointerReleased();
     }
+
+    private async void MouseButton_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        byte button = (sender as Control)?.Name == "LeftBtn" ? (byte)0 : (byte)1;
+        if (ViewModel != null)
+        {
+            await ViewModel.SetMouseButtonState(button, true);
+        }
+    }
+
+    private async void MouseButton_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        byte button = (sender as Control)?.Name == "LeftBtn" ? (byte)0 : (byte)1;
+        if (ViewModel != null)
+        {
+            await ViewModel.SetMouseButtonState(button, false);
+        }
+    }
 }

@@ -110,13 +110,23 @@ func SendMouseRelative(dx C.int, dy C.int) {
 
 //export SendMouseClick
 func SendMouseClick(button C.int, state C.int) {
-	if virtualMouse != nil {
-		// button: 0x110=left, 0x111=right
-		// state: 1=down, 0=up
+	if virtualMouse == nil {
+		return
+	}
+	// button: 0=left, 1=right
+	// state: 1=down, 0=up
+	switch button {
+	case 0:
 		if state == 1 {
-			if button == 0x110 {
-				virtualMouse.LeftClick() 
-			}
+			virtualMouse.LeftPress()
+		} else {
+			virtualMouse.LeftRelease()
+		}
+	case 1:
+		if state == 1 {
+			virtualMouse.RightPress()
+		} else {
+			virtualMouse.RightRelease()
 		}
 	}
 }
