@@ -132,9 +132,12 @@
             </StackPanel>
 
             <Border Name="TrackpadArea"
-                    Background="#1A1A1A"
+                    Background="Transparent"
                     CornerRadius="12"
-                    MinHeight="300">
+                    MinHeight="300"
+                    PointerPressed="Trackpad_PointerPressed"
+                    PointerMoved="Trackpad_PointerMoved"
+                    PointerReleased="Trackpad_PointerReleased">
                 <TextBlock Text="Move pointer here"
                            FontSize="14" Foreground="#3A3A3A"
                            HorizontalAlignment="Center"

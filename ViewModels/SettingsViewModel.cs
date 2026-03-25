@@ -30,6 +30,7 @@ public partial class SettingsViewModel : ViewModelBase
     // ── Linux Power Actions ─────────────────────────────────────────────
     public bool IsLinux => OperatingSystem.IsLinux();
     [ObservableProperty] private bool _isLinuxPowerSetupDone;
+    [ObservableProperty] private bool _isLinuxInputSetupDone;
     [ObservableProperty] private bool _isCheckingLinuxSetup;
 
     // ── Hotkeys ─────────────────────────────────────────────────────────
@@ -61,11 +62,31 @@ public partial class SettingsViewModel : ViewModelBase
         try
         {
             IsLinuxPowerSetupDone = await SystemControlService.Instance.IsLinuxPowerSetupDoneAsync();
+            IsLinuxInputSetupDone = await SystemControlService.Instance.IsLinuxInputSetupDoneAsync();
         }
         finally
         {
             IsCheckingLinuxSetup = false;
         }
+    }
+
+    [RelayCommand]
+    private async Task SetupLinuxInputAsync()
+    {
+        bool success = await SystemControlService.Instance.SetupLinuxInputAsync();
+        if (success)
+        {
+            StatusText = "Linux Trackpad support configured";
+            _log.Info("Linux Trackpad support configured successfully.");
+            await CheckLinuxSetupAsync();
+        }
+        else
+        {
+            StatusText = "Failed to configure Linux Trackpad support";
+            _log.Error("Failed to configure Linux Trackpad support.");
+        }
+        ShowSaved = true;
+        _ = HideSavedBadgeAsync();
     }
 
     [RelayCommand]

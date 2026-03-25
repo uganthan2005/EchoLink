@@ -10,10 +10,28 @@ public class MouseControlService
     private static MouseControlService? _instance;
     public static MouseControlService Instance => _instance ??= new MouseControlService();
 
+    public void Initialize()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            try 
+            { 
+                InitializeVirtualMouse(); 
+                InitializeVirtualKeyboard();
+            } 
+            catch (Exception ex) 
+            {
+                LoggingService.Instance.Warning($"[MouseControl] Linux uinput init failed: {ex.Message}");
+            }
+        }
+    }
+
     public Task HandleMouseMoveAsync(byte[] payload, CancellationToken ct)
     {
         if (payload.Length >= 4)
         {
+            // Use LittleEndian as per C# BitConverter defaults on most platforms, 
+            // matching how the packet is typically packed.
             short dx = BitConverter.ToInt16(payload, 0);
             short dy = BitConverter.ToInt16(payload, 2);
             
@@ -48,8 +66,7 @@ public class MouseControlService
             }
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                int btn = button == 0 ? 0x110 : 0x111;
-                try { SendMouseClick(btn, state); } catch { }
+                try { SendMouseClick(button, state); } catch { }
             }
         }
         return Task.CompletedTask;
@@ -57,6 +74,12 @@ public class MouseControlService
 
     [DllImport("user32.dll")]
     private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, int dwExtraInfo);
+
+    [DllImport("echolink", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int InitializeVirtualMouse();
+
+    [DllImport("echolink", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int InitializeVirtualKeyboard();
 
     [DllImport("echolink", CallingConvention = CallingConvention.Cdecl)]
     private static extern void SendMouseRelative(int dx, int dy);

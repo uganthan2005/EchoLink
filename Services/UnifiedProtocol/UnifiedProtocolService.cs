@@ -42,7 +42,7 @@ public class UnifiedProtocolService
         if (_serverCts != null) return;
         _serverCts = new CancellationTokenSource();
         
-        _listener = new TcpListener(IPAddress.Loopback, UnifiedPort);
+        _listener = new TcpListener(IPAddress.Any, UnifiedPort);
         _listener.Start();
         _log.Info($"[Unified] Server listening on TCP port {UnifiedPort}");
 

@@ -72,6 +72,84 @@ public class SystemControlService
         return result == 0;
     }
 
+    public async Task<bool> IsLinuxInputSetupDoneAsync()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return true;
+
+        // Check if udev rule exists and user is in input group
+        if (!File.Exists("/etc/udev/rules.d/99-echolink-uinput.rules")) return false;
+
+        var groupsResult = await RunCommandWithOutputAsync("groups", "");
+        return groupsResult.Contains("input");
+    }
+
+    public async Task<bool> SetupLinuxInputAsync()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return true;
+
+        _log.Info("[SystemControl] Starting Linux input setup via pkexec...");
+
+        string user = Environment.UserName;
+        string udevContent = "KERNEL==\"uinput\", GROUP=\"input\", MODE=\"0660\"";
+        string udevFile = "/etc/udev/rules.d/99-echolink-uinput.rules";
+
+        // Create udev rule and add user to input group
+        string command = $"bash -c \"echo '{udevContent}' > {udevFile} && udevadm control --reload-rules && udevadm trigger && usermod -aG input {user}\"";
+        
+        var psi = new ProcessStartInfo
+        {
+            FileName = "pkexec",
+            Arguments = command,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        try
+        {
+            using var process = Process.Start(psi);
+            if (process != null)
+            {
+                await process.WaitForExitAsync();
+                bool success = process.ExitCode == 0;
+                _log.Info($"[SystemControl] Input setup finished with exit code: {process.ExitCode}");
+                return success;
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"[SystemControl] Input setup failed: {ex.Message}");
+        }
+
+        return false;
+    }
+
+    private async Task<string> RunCommandWithOutputAsync(string fileName, string arguments)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true
+            };
+            using var process = Process.Start(psi);
+            if (process != null)
+            {
+                string output = await process.StandardOutput.ReadToEndAsync();
+                await process.WaitForExitAsync();
+                return output;
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"[SystemControl] Failed to run with output {fileName} {arguments}: {ex.Message}");
+        }
+        return string.Empty;
+    }
+
     public async Task<bool> SetupLinuxPowerActionsAsync()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return true;

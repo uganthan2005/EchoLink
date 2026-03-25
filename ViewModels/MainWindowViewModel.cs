@@ -25,7 +25,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public DashboardViewModel     Dashboard      { get; } = new();
     public FileTransferViewModel  FileTransfer   { get; } = new();
     public ClipboardViewModel     Clipboard      { get; } = new();
-    public RemoteControlViewModel RemoteControl  { get; } = new();
+    public RemoteControlViewModel RemoteControl  { get; } = RemoteControlViewModel.Instance;
     public DebugConsoleViewModel  DebugConsole   { get; } = new();
     public SettingsViewModel      Settings       { get; } = new();
     public SystemMonitorViewModel SystemMonitor  { get; } = new();

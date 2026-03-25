@@ -15,6 +15,9 @@ sealed class Program
         
         // Ensure virtual mic is setup on Linux at startup
         EnsureVirtualMic();
+        
+        // Ensure uinput permissions for trackpad
+        EnsureUinputPermissions();
 
         BuildAvaloniaApp()
             .WithDeveloperTools()
@@ -77,6 +80,48 @@ sealed class Program
         catch (Exception ex)
         {
             Console.WriteLine($"[Linux Startup] Failed to ensure virtual mic: {ex.Message}");
+        }
+    }
+
+    private static void EnsureUinputPermissions()
+    {
+        try
+        {
+            string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts", "setup_linux_uinput.sh");
+            if (!File.Exists(scriptPath))
+            {
+                scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "Scripts", "setup_linux_uinput.sh");
+            }
+
+            if (File.Exists(scriptPath))
+            {
+                Console.WriteLine($"[Linux Startup] Running uinput setup: {scriptPath}");
+                var processInfo = new ProcessStartInfo
+                {
+                    FileName = "bash",
+                    Arguments = $"\"{scriptPath}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = Process.Start(processInfo);
+                process?.WaitForExit();
+                
+                string output = process?.StandardOutput.ReadToEnd() ?? "";
+                string error = process?.StandardError.ReadToEnd() ?? "";
+                if (!string.IsNullOrEmpty(output)) Console.WriteLine(output);
+                if (!string.IsNullOrEmpty(error)) Console.WriteLine($"[Linux Startup] Uinput Script Error: {error}");
+            }
+            else
+            {
+                 Console.WriteLine($"[Linux Startup] setup_linux_uinput.sh NOT FOUND.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Linux Startup] Failed to ensure uinput: {ex.Message}");
         }
     }
 

@@ -3,11 +3,15 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EchoLink.Models;
 using EchoLink.Services;
+using EchoLink.Services.UnifiedProtocol;
 
 namespace EchoLink.ViewModels;
 
 public partial class RemoteControlViewModel : ViewModelBase
 {
+    private static RemoteControlViewModel? _instance;
+    public static RemoteControlViewModel Instance => _instance ??= new RemoteControlViewModel();
+
     private readonly LoggingService _log = LoggingService.Instance;
 
     [ObservableProperty] private Device? _selectedTarget;
@@ -23,6 +27,8 @@ public partial class RemoteControlViewModel : ViewModelBase
     private double _lastX;
     private double _lastY;
     private bool   _isDragging;
+    private bool   _hasMovedSignificant;
+    private DateTime _lastMoveTime;
 
     public RemoteControlViewModel()
     {
@@ -156,6 +162,7 @@ public partial class RemoteControlViewModel : ViewModelBase
         _isDragging  = true;
         _lastX       = x;
         _lastY       = y;
+        _hasMovedSignificant = false;
         TrackpadStatus = "Pointer pressed";
     }
 
@@ -165,23 +172,49 @@ public partial class RemoteControlViewModel : ViewModelBase
 
         double deltaX = x - _lastX;
         double deltaY = y - _lastY;
+        
+        if (Math.Abs(deltaX) > 1 || Math.Abs(deltaY) > 1)
+        {
+            _hasMovedSignificant = true;
+        }
+
         _lastX = x;
         _lastY = y;
 
         PointerX = x;
         PointerY = y;
 
-        TrackpadStatus = $"Δ({deltaX:+0.0;-0.0}, {deltaY:+0.0;-0.0})";
-
         if (SelectedTarget != null)
         {
-            _ = RemoteControlService.Instance.SendMoveAsync(deltaX, deltaY);
+            var now = DateTime.UtcNow;
+            if ((now - _lastMoveTime).TotalMilliseconds >= 15) // ~60Hz throttle
+            {
+                _lastMoveTime = now;
+                TrackpadStatus = $"Δ({deltaX:+0.0;-0.0}, {deltaY:+0.0;-0.0})";
+                _ = RemoteControlService.Instance.SendMoveAsync(deltaX, deltaY);
+            }
         }
     }
 
     public void OnPointerReleased()
     {
-        _isDragging    = false;
+        if (!_isDragging) return;
+        _isDragging = false;
+        
+        if (!_hasMovedSignificant && SelectedTarget != null)
+        {
+            // Simple tap = Left Click
+            _ = SendClickAsync(0);
+        }
+
         TrackpadStatus = SelectedTarget != null ? "Connected" : "Disconnected";
+    }
+
+    private async Task SendClickAsync(byte button)
+    {
+        // button: 0=left, 1=right
+        await RemoteControlService.Instance.SendClickAsync(button, 1); // Down
+        await Task.Delay(20);
+        await RemoteControlService.Instance.SendClickAsync(button, 0); // Up
     }
 }

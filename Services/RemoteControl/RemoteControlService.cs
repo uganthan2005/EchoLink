@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using EchoLink.Models;
+using EchoLink.ViewModels;
 using EchoLink.Services.UnifiedProtocol;
 using Renci.SshNet;
 
@@ -43,16 +44,44 @@ public class RemoteControlService
 
     public async Task SendMoveAsync(double dx, double dy)
     {
+        if (!UnifiedProtocolClient.Instance.IsConnected)
+        {
+            // Auto-reconnect if we have a target
+            var target = RemoteControlViewModel.Instance?.SelectedTarget;
+            if (target != null)
+            {
+                string pkeyPath = new SshPairingService(TailscaleService.Instance).PrivateKeyPath;
+                await ConnectToTargetAsync(target, pkeyPath, CancellationToken.None);
+            }
+        }
+
         if (UnifiedProtocolClient.Instance.IsConnected)
         {
             try
             {
-                // Multiplier for sensitivity
+                // Multiplier for sensitivity (dx*2.5, dy*2.5) as used in the former branch
                 await UnifiedProtocolClient.Instance.SendMouseMoveAsync((short)(dx * 2.5), (short)(dy * 2.5), CancellationToken.None);
             }
             catch (Exception ex)
             {
-                _log.Warning($"RemoteControl send failed: {ex.Message}");
+                _log.Warning($"RemoteControl move failed: {ex.Message}");
+                UnifiedProtocolClient.Instance.Disconnect();
+            }
+        }
+    }
+
+    public async Task SendClickAsync(byte button, byte state)
+    {
+        if (UnifiedProtocolClient.Instance.IsConnected)
+        {
+            try
+            {
+                await UnifiedProtocolClient.Instance.SendMouseClickAsync(button, state, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _log.Warning($"RemoteControl click failed: {ex.Message}");
+                UnifiedProtocolClient.Instance.Disconnect();
             }
         }
     }
@@ -150,6 +179,8 @@ public class RemoteControlService
     /// </summary>
     public void InitializeUnifiedProtocol()
     {
+        MouseControlService.Instance.Initialize();
+
         UnifiedProtocolService.Instance.RegisterHandler(
             UnifiedMessageType.MouseMove,
             async (payload, reply, ct) => await MouseControlService.Instance.HandleMouseMoveAsync(payload, ct));

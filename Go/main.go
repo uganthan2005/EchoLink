@@ -3,12 +3,17 @@ package main
 /*
 #include <stdlib.h>
 #include <string.h>
-#include <android/log.h>
 
-// Helper to log to Android Logcat
+#ifdef __ANDROID__
+#include <android/log.h>
 static inline void android_log(const char* msg) {
     __android_log_print(ANDROID_LOG_INFO, "EchoLink-Go", "%s", msg);
 }
+#else
+static inline void android_log(const char* msg) {
+    // No-op or stdout for non-android
+}
+#endif
 */
 import "C"
 import (
@@ -25,6 +30,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/bendahl/uinput"
 	"github.com/armon/go-socks5"
 	"github.com/gliderlabs/ssh"
 	"github.com/pkg/sftp"
@@ -49,7 +55,94 @@ var (
 	audioTarget      string = ""
 	tempSSHPasswords = make(map[string]string)
 	sshMu            sync.Mutex
+	virtualMouse    uinput.Mouse
+	virtualKeyboard uinput.Keyboard
 )
+
+//export InitializeVirtualMouse
+func InitializeVirtualMouse() int {
+	var err error
+	_, err = os.OpenFile("/dev/uinput", os.O_WRONLY|os.O_SYNC, 0660)
+	if err != nil {
+		log.Printf("[Go] Cannot open /dev/uinput: %v", err)
+		return 0
+	}
+
+	virtualMouse, err = uinput.CreateMouse("/dev/uinput", []byte("EchoLink Virtual Mouse"))
+	if err != nil {
+		log.Printf("[Go] Failed to create virtual mouse: %v", err)
+		return 0
+	}
+
+	log.Printf("[Go] Virtual mouse initialized successfully")
+	return 1
+}
+
+//export InitializeVirtualKeyboard
+func InitializeVirtualKeyboard() int {
+	var err error
+	virtualKeyboard, err = uinput.CreateKeyboard("/dev/uinput", []byte("EchoLink Virtual Keyboard"))
+	if err != nil {
+		log.Printf("[Go] Failed to create virtual keyboard: %v", err)
+		return 0
+	}
+
+	log.Printf("[Go] Virtual keyboard initialized successfully")
+	return 1
+}
+
+//export InitializeVirtualInput
+func InitializeVirtualInput() int {
+	res1 := InitializeVirtualMouse()
+	res2 := InitializeVirtualKeyboard()
+	if res1 == 1 && res2 == 1 {
+		return 1
+	}
+	return 0
+}
+
+//export SendMouseRelative
+func SendMouseRelative(dx C.int, dy C.int) {
+	if virtualMouse != nil {
+		virtualMouse.Move(int32(dx), int32(dy))
+	}
+}
+
+//export SendMouseClick
+func SendMouseClick(button C.int, state C.int) {
+	if virtualMouse != nil {
+		// button: 0x110=left, 0x111=right
+		// state: 1=down, 0=up
+		if state == 1 {
+			if button == 0x110 {
+				virtualMouse.LeftClick() 
+			}
+		}
+	}
+}
+
+//export SendMouseAction
+func SendMouseAction(button C.int, state C.int) {
+	if virtualMouse == nil {
+		return
+	}
+	// button: 0=left, 1=right
+	// state: 1=down, 0=up
+	switch button {
+	case 0:
+		if state == 1 {
+			virtualMouse.LeftPress()
+		} else {
+			virtualMouse.LeftRelease()
+		}
+	case 1:
+		if state == 1 {
+			virtualMouse.RightPress()
+		} else {
+			virtualMouse.RightRelease()
+		}
+	}
+}
 
 //export StartEchoLinkNode
 func StartEchoLinkNode(configDir *C.char, authKey *C.char, hostname *C.char, localIp *C.char, isEphemeral C.int) int {
