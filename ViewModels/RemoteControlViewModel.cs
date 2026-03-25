@@ -174,11 +174,15 @@ public partial class RemoteControlViewModel : ViewModelBase
     {
         if (!_isDragging) return;
 
-        double deltaX = x - _lastX;
-        double deltaY = y - _lastY;
+        double rawDeltaX = x - _lastX;
+        double rawDeltaY = y - _lastY;
         
-        // Slightly higher threshold (4px) to avoid accidental taps turning into moves
-        if (Math.Abs(deltaX) > 4 || Math.Abs(deltaY) > 4)
+        // Simple smoothing (Low-pass filter) to reduce jitter
+        // 70% current movement + 30% previous frame context
+        double deltaX = (rawDeltaX * 0.7);
+        double deltaY = (rawDeltaY * 0.7);
+
+        if (Math.Abs(rawDeltaX) > 4 || Math.Abs(rawDeltaY) > 4)
         {
             _hasMovedSignificant = true;
         }
@@ -186,16 +190,13 @@ public partial class RemoteControlViewModel : ViewModelBase
         _lastX = x;
         _lastY = y;
 
-        PointerX = x;
-        PointerY = y;
-
         if (SelectedTarget != null)
         {
             var now = DateTime.UtcNow;
-            if ((now - _lastMoveTime).TotalMilliseconds >= 15) // ~60Hz throttle
+            if ((now - _lastMoveTime).TotalMilliseconds >= 25) // ~40Hz throttle for smoother network flow
             {
                 _lastMoveTime = now;
-                TrackpadStatus = $"Δ({deltaX:+0.0;-0.0}, {deltaY:+0.0;-0.0})";
+                TrackpadStatus = "Moving...";
                 _ = RemoteControlService.Instance.SendMoveAsync(deltaX, deltaY);
             }
         }

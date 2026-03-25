@@ -59,8 +59,8 @@ public class RemoteControlService
         {
             try
             {
-                // Multiplier for sensitivity (dx*2.5, dy*2.5) as used in the former branch
-                await UnifiedProtocolClient.Instance.SendMouseMoveAsync((short)(dx * 2.5), (short)(dy * 2.5), CancellationToken.None);
+                // Multiplier for sensitivity (reduced from 2.5 to 1.2 for better control)
+                await UnifiedProtocolClient.Instance.SendMouseMoveAsync((short)(dx * 1.2), (short)(dy * 1.2), CancellationToken.None);
             }
             catch (Exception ex)
             {
