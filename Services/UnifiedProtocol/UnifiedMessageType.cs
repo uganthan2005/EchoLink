@@ -29,7 +29,9 @@ public enum UnifiedMessageType : byte
     // === File Browser (0x0B-0x0C) ===
     FileBrowserRequest = 0x0B,
     FileBrowserResponse = 0x0C,
-    
+
+    KeyboardEvent = 0x0D,
+
     // === Keepalive (0xFF) ===
     PingPong = 0xFF
 }

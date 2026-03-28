@@ -5,6 +5,7 @@ using EchoLink.Models;
 using EchoLink.ViewModels;
 using EchoLink.Services.UnifiedProtocol;
 using Renci.SshNet;
+using EchoLink.Services.RemoteControl;
 
 namespace EchoLink.Services;
 
@@ -14,6 +15,7 @@ public class RemoteControlService
     public static RemoteControlService Instance => _instance ??= new RemoteControlService();
 
     private readonly LoggingService _log = LoggingService.Instance;
+    private DesktopKeyboardSink? _keyboardSink;
 
     public void StartServer()
     {
@@ -180,6 +182,19 @@ public class RemoteControlService
     public void InitializeUnifiedProtocol()
     {
         MouseControlService.Instance.Initialize();
+
+        // Keyboard sink is only for desktop platforms
+        if (!OperatingSystem.IsAndroid())
+        {
+            _keyboardSink = new DesktopKeyboardSink();
+            UnifiedProtocolService.Instance.RegisterHandler(
+                UnifiedMessageType.KeyboardEvent,
+                async (payload, reply, ct) =>
+                {
+                    if (_keyboardSink != null)
+                        await _keyboardSink.HandleKeyboardEventAsync(payload);
+                });
+        }
 
         UnifiedProtocolService.Instance.RegisterHandler(
             UnifiedMessageType.MouseMove,

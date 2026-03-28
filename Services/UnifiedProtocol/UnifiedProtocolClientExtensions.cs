@@ -88,4 +88,12 @@ public static class UnifiedProtocolClientExtensions
         BitConverter.GetBytes(timestamp).CopyTo(payload, 0);
         await client.SendMessageAsync(UnifiedMessageType.PingPong, payload, ct);
     }
+
+    /// <summary>
+    /// Sends a keyboard event payload.
+    /// </summary>
+    public static async Task SendKeyboardEventAsync(this UnifiedProtocolClient client, byte[] payload, CancellationToken ct)
+    {
+        await client.SendMessageAsync(UnifiedMessageType.KeyboardEvent, payload, ct);
+    }
 }

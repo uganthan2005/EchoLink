@@ -146,6 +146,21 @@
                            VerticalAlignment="Center"/>
             </Border>
 
+            <!-- NEW: Keyboard Trap -->
+            <Border Classes="Card" Margin="0,16,0,0">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Keyboard Input"
+                               FontSize="13" FontWeight="SemiBold"
+                               Foreground="#B3B3B3"/>
+                    <TextBox Name="KeyboardTrap"
+                             Text=" "
+                             AcceptsReturn="False"
+                             TextWrapping="NoWrap"
+                             TextChanged="KeyboardTrap_TextChanged"
+                             KeyDown="KeyboardTrap_KeyDown"/>
+                </StackPanel>
+            </Border>
+
             <!-- Mouse Buttons -->
             <Grid ColumnDefinitions="*,*" Height="80" Margin="0,8,0,0" ColumnSpacing="8">
                 <Button Grid.Column="0" 

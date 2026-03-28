@@ -29,6 +29,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="..\Go\libecholink.so">
+      <Link>libecholink.so</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\Go\libecholink.h">
+      <Link>libecholink.h</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\EchoLink.csproj" />
   </ItemGroup>
 </Project>

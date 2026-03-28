@@ -14,6 +14,7 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.*" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.*" />
     <PackageReference Include="Duende.IdentityModel.OidcClient.Extensions" Version="7.1.0" />
+    <PackageReference Include="SharpHook" Version="5.3.0" />
  </ItemGroup>
 
   <ItemGroup>
